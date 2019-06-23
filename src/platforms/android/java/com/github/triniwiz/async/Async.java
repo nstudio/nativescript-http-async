@@ -1,0 +1,589 @@
+package com.github.triniwiz.async;
+
+import android.support.annotation.Nullable;
+import okhttp3.*;
+import okhttp3.internal.http2.ErrorCode;
+import okhttp3.internal.http2.StreamResetException;
+import okio.*;
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.net.SocketTimeoutException;
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * Created by triniwiz on 2019-06-19
+ */
+
+public class Async {
+
+    static final class ByteArrayOutputStream2 extends ByteArrayOutputStream {
+        public ByteArrayOutputStream2() {
+            super();
+        }
+
+        public ByteArrayOutputStream2(int size) {
+            super(size);
+        }
+
+        /**
+         * Returns the internal buffer of this ByteArrayOutputStream, without copying.
+         */
+        public synchronized byte[] buf() {
+            return this.buf;
+        }
+    }
+
+    public static class Http {
+        private static ConcurrentHashMap<String, CallOptions> callMap = new ConcurrentHashMap<>();
+        private static ArrayList<String> cancelList = new ArrayList<>();
+        private static Executor executor = Executors.newSingleThreadExecutor();
+
+        interface ProgressListener {
+            void onProgress(long loaded, long total);
+        }
+
+        public static class Result {
+            public Object content;
+            public String url;
+            public ArrayList<KeyValuePair> headers;
+
+            Result() {
+            }
+        }
+
+        static class ProgressRequestBody extends RequestBody {
+            RequestBody body;
+            ProgressListener listener;
+
+            ProgressRequestBody(final RequestBody body, final ProgressListener listener) {
+                this.body = body;
+                this.listener = listener;
+            }
+
+            @Nullable
+            @Override
+            public MediaType contentType() {
+                return body.contentType();
+            }
+
+            @Override
+            public long contentLength() throws IOException {
+                return body.contentLength();
+            }
+
+            @Override
+            public void writeTo(BufferedSink sink) throws IOException {
+                BufferedSink bufferedSink;
+                bufferedSink = Okio.buffer(forwardingSink(sink));
+                body.writeTo(bufferedSink);
+                bufferedSink.close();
+            }
+
+            ForwardingSink forwardingSink(BufferedSink sink) {
+                long contentLength = -1;
+                try {
+                    contentLength = contentLength();
+                } catch (IOException ignored) {
+
+                }
+                final long length = contentLength;
+                return new ForwardingSink(sink) {
+                    long totalBytesWrite = 0;
+
+                    @Override
+                    public void write(Buffer source, long byteCount) throws IOException {
+                        super.write(source, byteCount);
+                        if (listener != null) {
+                            totalBytesWrite += byteCount != -1 ? byteCount : 0;
+                            if (length < 0) {
+                                listener.onProgress(totalBytesWrite, length);
+                            }
+                            if (byteCount >= 0) {
+                                listener.onProgress(totalBytesWrite, length);
+                            }
+                        }
+                    }
+                };
+            }
+        }
+
+        static class ProgressResponseBody extends ResponseBody {
+            ResponseBody body;
+            ProgressListener listener;
+            BufferedSource bufferedSource;
+
+            ProgressResponseBody(ResponseBody body, ProgressListener listener) {
+                this.body = body;
+                this.listener = listener;
+            }
+
+            @Nullable
+            @Override
+            public MediaType contentType() {
+                return body.contentType();
+            }
+
+            @Override
+            public long contentLength() {
+                return body.contentLength();
+            }
+
+            @Override
+            public BufferedSource source() {
+                if (bufferedSource == null) {
+                    bufferedSource = Okio.buffer(source(body.source()));
+                }
+                return bufferedSource;
+            }
+
+            private Source source(Source source) {
+                return new ForwardingSource(body.source()) {
+                    long totalBytesRead = 0;
+                    long length = contentLength();
+
+                    @Override
+                    public long read(Buffer sink, long byteCount) throws IOException {
+                        long bytesRead = super.read(sink, byteCount);
+                        if (listener != null) {
+                            totalBytesRead += bytesRead != -1 ? bytesRead : 0;
+
+                            if (length < 0) {
+                                listener.onProgress(totalBytesRead, length);
+                            }
+                            if (bytesRead >= 0) {
+                                listener.onProgress(totalBytesRead, length);
+                            }
+                        }
+                        return bytesRead;
+                    }
+                };
+            }
+        }
+
+        public interface Callback {
+            void onComplete(Object result);
+
+            void onError(String error, Exception e);
+
+            void onProgress(boolean lengthComputable, long loaded, long total);
+
+            void onHeaders(ArrayList<Http.KeyValuePair> headers, int status);
+
+            void onCancel(Object result);
+
+            void onLoading();
+
+            void onTimeout();
+        }
+
+        static class HttpEventListener extends EventListener {
+            @Override
+            public void requestHeadersEnd(Call call, Request request) {
+                super.requestHeadersEnd(call, request);
+            }
+
+            @Override
+            public void responseHeadersEnd(Call call, Response response) {
+                for (String key : callMap.keySet()) {
+                    CallOptions options = callMap.get(key);
+                    if (options != null && options.call.equals(call)) {
+                        Headers responseHeaders = response.headers();
+                        ArrayList<KeyValuePair> headers = new ArrayList<>();
+                        for (String value : responseHeaders.names()) {
+                            headers.add(new KeyValuePair(value, responseHeaders.get(value)));
+                        }
+                        options.callback.onHeaders(headers, response.code());
+                    }
+                }
+                super.responseHeadersEnd(call, response);
+            }
+
+            @Override
+            public void responseBodyStart(Call call) {
+                String method = call.request().method();
+                if (!method.equals("POST") && !method.equals("PUT")) {
+                    for (String key : callMap.keySet()) {
+                        CallOptions options = callMap.get(key);
+                        if (options != null && options.call.equals(call)) {
+                            options.callback.onLoading();
+                        }
+                    }
+                }
+                super.responseBodyStart(call);
+            }
+
+            @Override
+            public void responseBodyEnd(Call call, long byteCount) {
+                super.responseBodyEnd(call, byteCount);
+            }
+
+            @Override
+            public void requestBodyStart(Call call) {
+                String method = call.request().method();
+                if (method.equals("POST") || method.equals("PUT")) {
+                    for (String key : callMap.keySet()) {
+                        CallOptions options = callMap.get(key);
+                        if (options != null && options.call.equals(call)) {
+                            options.callback.onLoading();
+                        }
+                    }
+                }
+                super.requestBodyStart(call);
+            }
+
+            @Override
+            public void requestBodyEnd(Call call, long byteCount) {
+                super.requestBodyEnd(call, byteCount);
+            }
+        }
+
+        private static boolean isTextType(@Nullable String contentType) {
+            boolean isTextType = false;
+            if (contentType != null) {
+                String[] textTypes = {
+                        "text/plain",
+                        "application/xml",
+                        "application/rss+xml",
+                        "text/html",
+                        "text/xml"};
+                for (String type : textTypes) {
+                    isTextType = contentType.contains(type);
+                    if (isTextType) {
+                        break;
+                    }
+                }
+            }
+            return isTextType;
+        }
+
+        public static String makeRequest(final RequestOptions options, final Http.Callback callback) {
+            UUID uuid = UUID.randomUUID();
+            final String id = uuid.toString();
+            executor.execute(new Runnable() {
+                @Override
+                public void run() {
+                    OkHttpClient.Builder builder = new OkHttpClient.Builder();
+                    builder.eventListener(new HttpEventListener());
+                    builder.followRedirects(!options.dontFollowRedirects);
+                    if (options.timeout > -1) {
+                        builder.connectTimeout(options.timeout, TimeUnit.MILLISECONDS);
+                        builder.readTimeout(options.timeout, TimeUnit.MILLISECONDS);
+                        builder.writeTimeout(options.timeout, TimeUnit.MILLISECONDS);
+                    }
+                    if (options.username != null && options.password != null) {
+                        builder.authenticator(new Authenticator() {
+                            @Nullable
+                            @Override
+                            public Request authenticate(Route route, Response response) throws IOException {
+                                if (response.request().header("Authorization") != null) {
+                                    return null;
+                                }
+                                return response.request().newBuilder()
+                                        .header("Authorization", Credentials.basic(options.username, options.password))
+                                        .build();
+                            }
+                        });
+                    }
+                    Request.Builder request = new Request.Builder();
+                    request.url(options.url);
+                    String contentType = "text/html";
+                    if (options.headers != null) {
+                        for (KeyValuePair pair : options.headers) {
+                            request.addHeader(pair.key, pair.value);
+                            if (pair.key.equals("Content-Type")) {
+                                contentType = pair.value;
+                            }
+                        }
+                    }
+                    RequestBody body = null;
+                    if (options.method.equals("POST") || options.method.equals("PUT")) {
+                        if (options.content instanceof File) {
+
+                        } else if (options.content instanceof String) {
+                            body = new ProgressRequestBody(RequestBody.create(MediaType.parse(contentType), (String) options.content), new ProgressListener() {
+                                @Override
+                                public void onProgress(long loaded, long total) {
+                                    callback.onProgress(total > -1, loaded, total);
+                                }
+                            });
+                        } else if (options.content instanceof JSONObject || options.content instanceof JSONArray) {
+                            body = new ProgressRequestBody(RequestBody.create(MediaType.parse(contentType), options.content.toString()), new ProgressListener() {
+                                @Override
+                                public void onProgress(long loaded, long total) {
+                                    callback.onProgress(total > -1, loaded, total);
+                                }
+                            });
+                        }
+                    }
+                    request.method(options.method, body);
+                    OkHttpClient client = builder.build();
+                    Call call = client.newCall(request.build());
+                    call.enqueue(new okhttp3.Callback() {
+                        ByteArrayOutputStream2 stream;
+
+                        @Override
+                        public void onFailure(Call call, IOException e) {
+                            if (call.isCanceled()) {
+                                Result result = new Result();
+                                if (stream != null) {
+                                    result.content = ByteBuffer.wrap(stream.buf());
+                                    result.url = call.request().url().toString();
+                                    callback.onCancel(result);
+                                } else {
+                                    result.content = ByteBuffer.allocate(0);
+                                    result.url = call.request().url().toString();
+                                    callback.onCancel(result);
+                                }
+                            } else if (e instanceof SocketTimeoutException) {
+                                callback.onTimeout();
+                            }
+                            callMap.remove(id);
+                        }
+
+                        @Override
+                        public void onResponse(Call call, Response response) throws IOException {
+                            ProgressResponseBody responseBody = new ProgressResponseBody(response.body(), new ProgressListener() {
+                                @Override
+                                public void onProgress(long loaded, long total) {
+                                    if (!options.method.equals("POST") && !options.method.equals("PUT")) {
+                                        callback.onProgress(total > -1, loaded, total);
+                                    }
+                                }
+                            });
+                            String contentType = call.request().header("Content-Type");
+                            if (contentType == null) {
+                                contentType = call.request().header("content-Type");
+                            }
+                            String acceptHeader;
+
+                            if (contentType == null) {
+                                acceptHeader = call.request().header("Accept");
+                            } else {
+                                acceptHeader = contentType;
+                            }
+                            String returnType = "text/plain";
+                            if (acceptHeader != null) {
+                                String[] acceptValues = acceptHeader.split(",");
+                                ArrayList<String> quality = new ArrayList<>();
+                                ArrayList<String> defaultQuality = new ArrayList<>();
+                                ArrayList<String> customQuality = new ArrayList<>();
+                                for (String value : acceptValues) {
+                                    if (value.contains(";q=")) {
+                                        customQuality.add(value);
+                                    } else {
+                                        defaultQuality.add(value);
+                                    }
+                                }
+                                Collections.sort(customQuality, new QualitySort());
+                                quality.addAll(defaultQuality);
+                                quality.addAll(customQuality);
+                                returnType = quality.get(0);
+                            }
+                            BufferedSource source = responseBody.source();
+                            stream = new ByteArrayOutputStream2();
+                            Sink sink = Okio.sink(stream);
+                            Result result = new Result();
+                            result.url = response.request().url().toString();
+                            result.headers = new ArrayList<>();
+                            result.headers.add(new KeyValuePair("Content-Type", returnType));
+                            try {
+                                source.readAll(sink);
+                                if (isTextType(returnType)) {
+                                    result.content = stream.toString();
+                                    callback.onComplete(result);
+                                } else if (returnType.equals("application/json")) {
+                                    String returnValue = stream.toString();
+                                    try {
+                                        result.content = new JSONObject(returnValue);
+                                    } catch (JSONException e) {
+                                        if (e.getMessage().contains("org.json.JSONArray cannot be converted to JSONObject")) {
+                                            result.content = new JSONArray(returnValue);
+                                        } else {
+                                            throw e;
+                                        }
+                                    }
+                                    callback.onComplete(result);
+                                } else {
+                                    result.content = ByteBuffer.wrap(stream.buf());
+                                    callback.onComplete(result);
+                                }
+                            } catch (StreamResetException e) {
+                                if (e.errorCode == ErrorCode.CANCEL) {
+                                    if (isTextType(returnType)) {
+                                        result.content = stream.toString();
+                                        callback.onCancel(result);
+                                    } else if (returnType.equals("application/json")) {
+                                        String returnValue = stream.toString();
+                                        try {
+                                            result.content = new JSONObject(returnValue);
+                                        } catch (JSONException e1) {
+                                            if (e1.getMessage().contains("org.json.JSONArray cannot be converted to JSONObject")) {
+                                                try {
+                                                    result.content = new JSONArray(returnValue);
+                                                } catch (JSONException e2) {
+                                                    callback.onError(e2.getMessage(), e2);
+                                                }
+                                            } else {
+                                                callback.onError(e1.getMessage(), e1);
+                                            }
+                                        }
+                                    } else {
+                                        result.content = ByteBuffer.wrap(stream.buf());
+                                        callback.onCancel(result);
+                                    }
+                                } else {
+                                    callback.onError(e.getMessage(), e);
+                                }
+
+                            } catch (SocketTimeoutException e) {
+                                callback.onTimeout();
+                            } catch (Exception e) {
+                                callback.onError(e.getMessage(), e);
+                            }
+                            responseBody.close();
+                            callMap.remove(id);
+                        }
+                    });
+                    callMap.put(id, new CallOptions(call, options, callback));
+                    for (String cancelId : cancelList) {
+                        if (id.equals(cancelId)) {
+                            call.cancel();
+                            callMap.remove(cancelId);
+                            cancelList.remove(cancelId);
+                        }
+                    }
+                }
+            });
+            return id;
+        }
+
+        public static void cancelRequest(final String id) {
+            if (id != null) {
+                executor.execute(new Runnable() {
+                    @Override
+                    public void run() {
+                        CallOptions pair = callMap.get(id);
+                        if (pair != null) {
+                            pair.call.cancel();
+                        } else {
+                            cancelList.add(id);
+                        }
+                    }
+                });
+            }
+        }
+
+        static class CallOptions {
+            public Call call;
+            public Callback callback;
+            public RequestOptions options;
+
+            CallOptions(Call call, RequestOptions options, Callback callback) {
+                this.call = call;
+                this.options = options;
+                this.callback = callback;
+            }
+        }
+
+        public static class KeyValuePair {
+            public String key;
+            public String value;
+
+            public KeyValuePair(String key, String value) {
+                this.key = key;
+                this.value = value;
+            }
+        }
+
+        public static class RequestOptions {
+            public String url;
+            public String method;
+            public ArrayList<KeyValuePair> headers;
+            public Object content;
+            public int timeout = -1;
+            public boolean dontFollowRedirects = false;
+            public String username;
+            public String password;
+        }
+    }
+
+
+    static class QualitySort implements Comparator<String> {
+        @Override
+        public int compare(String a, String b) {
+            float a_quality = Float.valueOf(a.substring(a.indexOf(";q=")).replace(";q=", ""));
+            float b_quality = Float.valueOf(b.substring(b.indexOf(";q=")).replace(";q=", ""));
+            return (int) (b_quality - a_quality);
+        }
+    }
+
+    public static class FileManager {
+        private static Executor executor = Executors.newSingleThreadExecutor();
+
+        public interface Callback {
+            void onError(String error, Exception e);
+
+            void onComplete(@Nullable Object object);
+        }
+
+        public static class Options {
+            public boolean asStream = false;
+
+            Options() {
+            }
+        }
+
+        public static void writeFile(final byte[] bytes, final String path, final Callback callback) {
+            executor.execute(new Runnable() {
+                @Override
+                public void run() {
+                    BufferedSink sink;
+                    try {
+                        sink = Okio.buffer(Okio.sink(new File(path)));
+                        sink.write(bytes);
+                        callback.onComplete(null);
+                    } catch (FileNotFoundException e) {
+                        callback.onError(e.getMessage(), e);
+                    } catch (IOException e) {
+                        callback.onError(e.getMessage(), e);
+                    }
+                }
+            });
+        }
+
+        public static void readFile(final String path, final Options options, final Callback callback) {
+            executor.execute(new Runnable() {
+                @Override
+                public void run() {
+                    File file = new File(path);
+                    BufferedSource source;
+                    try {
+                        source = Okio.buffer(Okio.source(file));
+                        ByteArrayOutputStream2 outputStream = new ByteArrayOutputStream2();
+                        Sink sink = Okio.sink(outputStream);
+                        source.readAll(sink);
+                        callback.onComplete(outputStream.buf());
+                    } catch (FileNotFoundException e) {
+                        callback.onError(e.getMessage(), e);
+                    } catch (IOException e) {
+                        callback.onError(e.getMessage(), e);
+                    }
+                }
+            });
+        }
+    }
+}
