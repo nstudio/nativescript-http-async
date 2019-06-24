@@ -1,3 +1,5 @@
+declare var com;
+
 export class FileManager {
 
     public static writeFile(bytes: any, path: string, callback: (...args) => void) {
