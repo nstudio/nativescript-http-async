@@ -1,4 +1,4 @@
-import { Async } from 'nativescript-async';
+import { Async } from 'nativescript-http-async';
 console.log(new Async().message);
 /*
 In NativeScript, a file with the same name as an XML file is known as

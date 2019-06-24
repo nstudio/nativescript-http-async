@@ -11,13 +11,13 @@ const BASE_PROVIDERS = [
 @NgModule({
     providers: BASE_PROVIDERS
 })
-export class NativeScriptAsyncModule {
+export class NativeScriptHttpAsyncModule {
   static forRoot(options: { configuredProviders?: Array<any>; debug?: boolean; }): ModuleWithProviders {
     if (options.debug) {
       TNSHttpDebugging.enabled = true;
     }
     return {
-      ngModule: NativeScriptAsyncModule,
+      ngModule: NativeScriptHttpAsyncModule,
       // Allow others to override if they need more control
       providers: [...BASE_PROVIDERS, ...(options.configuredProviders || [])]
     };
@@ -26,10 +26,10 @@ export class NativeScriptAsyncModule {
   constructor(
     @Optional()
     @SkipSelf()
-    parentModule: NativeScriptAsyncModule
+    parentModule: NativeScriptHttpAsyncModule
   ) {
     if (parentModule) {
-      throw new Error(`NativeScriptAsyncModule has already been loaded. Import NativeScriptAsyncModule in the AppModule only.`);
+      throw new Error(`NativeScriptHttpAsyncModule has already been loaded. Import NativeScriptHttpAsyncModule in the AppModule only.`);
     }
   }
 }

@@ -98,25 +98,21 @@ class NSURLSessionTaskDelegateImpl extends NSObject
         data: NSData
     ) {
         // const method = this._request.HTTPMethod.toLowerCase();
-        if (this._onLoading && !this._loadingSent) {
-            const lengthComputable = this._lastProgress.lengthComputable;
-            this._onLoading({
-                lengthComputable,
-                loaded: this._data.length,
-                total: this._lastProgress.total
-            });
-            this._loadingSent = true;
-        }
-        if (this._onProgress) {
-            const lengthComputable = this._lastProgress.lengthComputable;
-            this._onProgress({
-                lengthComputable,
-                loaded: this._data.length,
-                total: this._lastProgress.total
-            });
-        }
-        if (this._data) {
-            this._data.appendData(data);
+        if (data) {
+          this._data.appendData(data);
+
+          const lastProgress: any = this._lastProgress || {
+            lengthComputable: false,
+            total: 0
+          };
+          lastProgress.loaded = this._data.length;
+          if (this._onLoading && !this._loadingSent) {
+              this._onLoading(lastProgress);
+              this._loadingSent = true;
+          }
+          if (this._onProgress) {
+              this._onProgress(lastProgress);
+          }
         }
     }
 
@@ -128,11 +124,10 @@ class NSURLSessionTaskDelegateImpl extends NSObject
         totalBytesExpectedToSend
     ) {
       if (this._onLoading || this._onProgress) {
-        const lengthComputable = totalBytesExpectedToSend > -1;
         this._lastProgress = {
-          lengthComputable,
+          lengthComputable: totalBytesExpectedToSend > -1,
           loaded: totalBytesSent,
-          total: lengthComputable ? totalBytesExpectedToSend : 0
+          total: totalBytesExpectedToSend > -1 ? totalBytesExpectedToSend : 0
         };
         if (this._onLoading && !this._loadingSent) {
           this._onLoading(this._lastProgress);

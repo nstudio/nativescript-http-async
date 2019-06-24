@@ -396,14 +396,13 @@ export class TNSXMLHttpRequest {
         // right now for brevity since GET requests are for more frequent than others,
         // just enabling for post and put temporarily
         if (method === 'post' || method === 'put') {
-          request.onProgress = event => {
-              this._lastProgress = {...this._lastProgress, ...event};
+          request.onProgress = (event) => {
+              this._lastProgress = {
+                ...(this._lastProgress || {}),
+                ...event
+              };
               if (event.loaded > 0) {
-                  const progress = new ProgressEvent('progress', {
-                      lengthComputable: event.lengthComputable,
-                      loaded: event.loaded,
-                      total: event.total
-                  });
+                  const progress = new ProgressEvent('progress', this._lastProgress);
                   if (this._upload && (method === 'post' || method === 'put')) {
                       this._upload._emitEvent('progress', progress);
                   }
@@ -543,11 +542,7 @@ export class TNSXMLHttpRequest {
                 this.onloadend();
             }
 
-            const loadend = new ProgressEvent('loadend', {
-                lengthComputable: this._lastProgress.lengthComputable,
-                loaded: this._lastProgress.loaded,
-                total: this._lastProgress.total
-            });
+            const loadend = new ProgressEvent('loadend', this._lastProgress);
 
             if (this._upload && (method === 'post' || method === 'put')) {
                 this._upload._emitEvent('loadend', loadend);
@@ -564,11 +559,7 @@ export class TNSXMLHttpRequest {
                         if (this.onabort) {
                             this.onabort();
                         }
-                        const abort = new ProgressEvent('abort', {
-                            lengthComputable: this._lastProgress.lengthComputable,
-                            loaded: this._lastProgress.loaded,
-                            total: this._lastProgress.total
-                        });
+                        const abort = new ProgressEvent('abort', this._lastProgress);
 
 
                         if (this._upload && (method === 'post' || method === 'put')) {
@@ -580,11 +571,7 @@ export class TNSXMLHttpRequest {
                             this.onloadend();
                         }
 
-                        const _loadend = new ProgressEvent('loadend', {
-                            lengthComputable: this._lastProgress.lengthComputable,
-                            loaded: this._lastProgress.loaded,
-                            total: this._lastProgress.total
-                        });
+                        const _loadend = new ProgressEvent('loadend', this._lastProgress);
 
                         if (this._upload && (method === 'post' || method === 'put')) {
                             this._upload._emitEvent('loadend', _loadend);
@@ -606,12 +593,7 @@ export class TNSXMLHttpRequest {
                         if (this.ontimeout) {
                             this.ontimeout();
                         }
-                        const timeout = new ProgressEvent('timeout', {
-                            lengthComputable: this._lastProgress
-                                .lengthComputable,
-                            loaded: this._lastProgress.loaded,
-                            total: this._lastProgress.total
-                        });
+                        const timeout = new ProgressEvent('timeout', this._lastProgress);
 
                         if (this._upload && (method === 'post' || method === 'put')) {
                             this._upload._emitEvent('timeout', timeout);
@@ -623,11 +605,7 @@ export class TNSXMLHttpRequest {
                             this.onerror(error.message);
                         }
 
-                        const errorEvent = new ProgressEvent('error', {
-                            lengthComputable: this._lastProgress.lengthComputable,
-                            loaded: this._lastProgress.loaded,
-                            total: this._lastProgress.total
-                        });
+                        const errorEvent = new ProgressEvent('error', this._lastProgress);
 
                         if (this._upload && (method === 'post' || method === 'put')) {
                             this._upload._emitEvent('error', errorEvent);
@@ -638,11 +616,7 @@ export class TNSXMLHttpRequest {
                             this.onloadend();
                         }
 
-                        const loadend = new ProgressEvent('loadend', {
-                            lengthComputable: this._lastProgress.lengthComputable,
-                            loaded: this._lastProgress.loaded,
-                            total: this._lastProgress.total
-                        });
+                        const loadend = new ProgressEvent('loadend', this._lastProgress);
 
                         if (this._upload && (method === 'post' || method === 'put')) {
                             this._upload._emitEvent('loadend', loadend);
