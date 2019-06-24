@@ -1,5 +1,3 @@
-import { Async } from 'nativescript-async';
-console.log(new Async().message);
 import { Component } from "@angular/core";
 
 @Component({

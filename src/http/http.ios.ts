@@ -116,6 +116,10 @@ class NSURLSessionTaskDelegateImpl extends NSObject
                     total: this._lastProgress.total
                 });
             }
+        }else{
+            if(this._data){
+                this._data.appendData(data);
+            }
         }
     }
 
@@ -443,27 +447,35 @@ export class Http {
 }
 
 
-export function deserialize(data): any {
-    if (data instanceof NSNull) {
+function deserialize(nativeData) {
+  if (types.isNullOrUndefined(nativeData)) {
+    // some native values will already be js null values
+    // calling types.getClass below on null/undefined will cause crash
+    return null;
+  } else {
+    switch (types.getClass(nativeData)) {
+      case 'NSNull':
         return null;
-    }
-
-    if (data instanceof NSArray) {
+      case 'NSMutableDictionary':
+      case 'NSDictionary':
+        let obj = {};
+        const length = nativeData.count;
+        const keysArray = nativeData.allKeys as NSArray<any>;
+        for (let i = 0; i < length; i++) {
+          const nativeKey = keysArray.objectAtIndex(i);
+          obj[nativeKey] = deserialize(nativeData.objectForKey(nativeKey));
+        }
+        return obj;
+      case 'NSMutableArray':
+      case 'NSArray':
         let array = [];
-        for (let i = 0, n = data.count; i < n; i++) {
-            array[i] = deserialize(data.objectAtIndex(i));
+        const len = nativeData.count;
+        for (let i = 0; i < len; i++) {
+          array[i] = deserialize(nativeData.objectAtIndex(i));
         }
         return array;
+      default:
+        return nativeData;
     }
-
-    if (data instanceof NSDictionary) {
-        let dict = {};
-        for (let i = 0, n = data.allKeys.count; i < n; i++) {
-            let key = data.allKeys.objectAtIndex(i);
-            dict[key] = deserialize(data.objectForKey(key));
-        }
-        return dict;
-    }
-
-    return data;
+  }
 }

@@ -1,4 +1,5 @@
 import { Headers, HttpError, HttpRequestOptions } from './http-request-common';
+import * as types from 'tns-core-modules/utils/types';
 
 export type CancellablePromise = Promise<any> & { cancel: () => void };
 
@@ -203,44 +204,52 @@ function serialize(data: any): any {
 }
 
 function deserialize(data): any {
-    if (data === null || typeof data !== 'object') {
+    if (types.isNullOrUndefined(data)) {
+        return null;
+    }
+    if (typeof data !== 'object') {
         return data;
     }
-    let store;
-    switch (data.getClass().getName()) {
-        case 'java.lang.String': {
-            return String(data);
-        }
-        case 'java.lang.Boolean': {
-            return String(data) === 'true';
-        }
-        case 'java.lang.Integer':
-        case 'java.lang.Long':
-        case 'java.lang.Double':
-        case 'java.lang.Short': {
-            return Number(data);
-        }
-        case 'org.json.JSONArray': {
-            store = [];
-            for (let j = 0; j < data.length(); j++) {
-                store[j] = deserialize(data.get(j));
+
+    if (typeof data.getClass === 'function') {
+        let store;
+        switch (data.getClass().getName()) {
+            case 'java.lang.String': {
+                return String(data);
             }
-            break;
-        }
-        case 'org.json.JSONObject': {
-            store = {};
-            let i = data.keys();
-            while (i.hasNext()) {
-                let key = i.next();
-                store[key] = deserialize(data.get(key));
+            case 'java.lang.Boolean': {
+                return String(data) === 'true';
             }
-            break;
+            case 'java.lang.Integer':
+            case 'java.lang.Long':
+            case 'java.lang.Double':
+            case 'java.lang.Short': {
+                return Number(data);
+            }
+            case 'org.json.JSONArray': {
+                store = [];
+                for (let j = 0; j < data.length(); j++) {
+                    store[j] = deserialize(data.get(j));
+                }
+                break;
+            }
+            case 'org.json.JSONObject': {
+                store = {};
+                let i = data.keys();
+                while (i.hasNext()) {
+                    let key = i.next();
+                    store[key] = deserialize(data.get(key));
+                }
+                break;
+            }
+            default:
+                store = null;
+                break;
         }
-        default:
-            store = null;
-            break;
+        return store;
+    } else {
+        return data;
     }
-    return store;
 }
 
 function decodeResponse(raw: any, encoding?: HttpResponseEncoding): any {

@@ -1,7 +1,45 @@
 <ActionBar class="action-bar">
-    <Label class="action-bar-title" text="Home"></Label>
+	<Label class="action-bar-title" text="Home"></Label>
 </ActionBar>
 
-<GridLayout class="page">
-    <!-- Add your page content here -->
-</GridLayout>
+<StackLayout class="page">
+	<Button (tap)="getRandomUser()" text="Get Random"></Button>
+	<Label text="Requests Count"></Label>
+	<TextField #userCount text="1"></TextField>
+	<Label text="Users Results Count"></Label>
+	<TextField #userResults text="10"></TextField>
+	<Button (tap)="getRandomUsers(userCount.text, userResults.text)" text="Get RandomUsers"></Button>
+	<Button (tap)="makeRequest()" text="Make Request"></Button>
+	<Button (tap)="makeXhr()" text="Make Xhr Request"></Button>
+	<Button (tap)="base64Xhr()" text="Upload Image Request"></Button>
+	<Button (tap)="showNext()" text="showNext"></Button>
+	<Button (tap)="showPrevious()" text="showPrevious"></Button>
+	<Image [visibility]="dataService?.currentLoadedImage ? 'visible':'collapse'" height="200"
+		   [src]="dataService?.currentLoadedImage"></Image>
+	<ListView [items]="dataService.randomUsers" class="list-group" row="2" height="100%">
+		<ng-template let-item="item">
+			<GridLayout rows="40, auto, auto, auto" [nsRouterLink]="['/item', item.id]">
+				<Image height="40" width="40" borderRadius="20" [src]="item?.picture?.thumbnail"></Image>
+				<Label row="1">
+					<FormattedString>
+						<Span text="Name: "></Span>
+						<Span [text]="item?.name?.title + ' ' + item?.name?.first + ' ' + item?.name?.last | titlecase"></Span>
+					</FormattedString>
+				</Label>
+				<Label row="2">
+					<FormattedString>
+						<Span text="DOB: "></Span>
+						<Span [text]="item?.dob?.date | date:'dd/MM/yyyy' "></Span>
+					</FormattedString>
+				</Label>
+				<Label row="3">
+					<FormattedString>
+						<Span text="Address: "></Span>
+						<Span [text]="item?.location?.street "></Span>
+					</FormattedString>
+				</Label>
+
+			</GridLayout>
+		</ng-template>
+	</ListView>
+</StackLayout>

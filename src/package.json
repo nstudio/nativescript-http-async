@@ -32,7 +32,7 @@
 		"plugin.prepare": "npm run build && cd ../demo && tns plugin remove nativescript-async && tns plugin add ../src && cd ../demo-angular && tns plugin remove nativescript-async && tns plugin add ../src",
 		"clean": "npm run demo.reset && npm run demo-angular.reset && npx rimraf -- node_modules package-lock.json && npm i",
 		"ngc": "npm i && npm run ngc.clean && node --max-old-space-size=8192 node_modules/.bin/ngc -skipLibCheck -p tsconfig.json",
-		"ngc.clean": "find ./ angular/ -name '*.metadata.json' -delete"
+		"ngc.clean": "find ./ angular/ -name '*.metadata.json' -delete && find ./ angular/ -name '*.ngsummary.json' -delete"
 	},
 	"keywords": [
 		"NativeScript",
@@ -41,8 +41,8 @@
 		"iOS"
 	],
 	"author": {
-		"name": "Your Name",
-		"email": "youremail@yourdomain.com"
+		"name": "Osei",
+		"email": "Fortune"
 	},
 	"bugs": {
 		"url": "https://github.com/triniwiz/nativescript-async/issues"

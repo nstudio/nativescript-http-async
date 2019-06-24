@@ -1,6 +1,7 @@
-import { CancellablePromise, Http } from '../http/http';
+import { CancellablePromise, Http } from '..';
 import { HttpError, HttpRequestOptions, ProgressEvent } from '../http/http-request-common';
 import { isIOS } from 'tns-core-modules/platform';
+import * as types from 'tns-core-modules/utils/types';
 
 enum XMLHttpRequestResponseType {
     empty = '',
@@ -214,9 +215,6 @@ export class TNSXMLHttpRequest {
     }
 
     private _setResponseType() {
-        if (this.responseType) {
-            return;
-        }
         const header = this.getResponseHeader('Content-Type') || this.getResponseHeader('content-type');
         const contentType = header && header.toLowerCase();
         if (contentType) {
@@ -264,7 +262,13 @@ export class TNSXMLHttpRequest {
         ) {
             header = header.toLowerCase();
             if (typeof this._headers === 'object') {
-                return this._headers[header];
+                const keys = Object.keys(this._headers);
+                for (let key of keys) {
+                    const item = key.toLowerCase();
+                    if (item === header) {
+                        return this._headers[key];
+                    }
+                }
             }
             return null;
         }
@@ -289,7 +293,10 @@ export class TNSXMLHttpRequest {
     private _addToStringOnResponse() {
         // Add toString() method to ease debugging and
         // make Angular2 response.text() method work properly.
-        if (typeof this.response === 'object') {
+        if (types.isNullOrUndefined(this.response)) {
+            return;
+        }
+        if (types.isObject(this.response)) {
             Object.defineProperty(this._response, 'toString', {
                 configurable: true,
                 enumerable: false,
@@ -414,6 +421,7 @@ export class TNSXMLHttpRequest {
 
             if (this.responseType === XMLHttpRequestResponseType.json) {
                 if (typeof res.content === 'string') {
+                    this._responseText = res.content;
                     this._response = JSON.parse(this.responseText);
                 } else if (typeof res.content === 'object') {
                     this._response = res.content;
@@ -616,7 +624,7 @@ export class TNSXMLHttpRequest {
                         break;
                     case HttpError.Error:
                         if (this.onerror) {
-                            this.onerror();
+                            this.onerror(error.message);
                         }
 
                         const errorEvent = new ProgressEvent('error', {
