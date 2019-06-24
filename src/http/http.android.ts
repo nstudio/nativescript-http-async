@@ -1,5 +1,6 @@
 import { Headers, HttpError, HttpRequestOptions } from './http-request-common';
 import * as types from 'tns-core-modules/utils/types';
+import { NetworkAgent } from 'tns-core-modules/debugger';
 
 export type CancellablePromise = Promise<any> & { cancel: () => void };
 
@@ -9,6 +10,49 @@ export enum HttpResponseEncoding {
     UTF8,
     GBK
 }
+
+const statuses = {
+    100: 'Continue',
+    101: 'Switching Protocols',
+    200: 'OK',
+    201: 'Created',
+    202: 'Accepted',
+    203: 'Non - Authoritative Information',
+    204: 'No Content',
+    205: 'Reset Content',
+    206: 'Partial Content',
+    300: 'Multiple Choices',
+    301: 'Moved Permanently',
+    302: 'Found',
+    303: 'See Other',
+    304: 'Not Modified',
+    305: 'Use Proxy',
+    307: 'Temporary Redirect',
+    400: 'Bad Request',
+    401: 'Unauthorized',
+    402: 'Payment Required',
+    403: 'Forbidden',
+    404: 'Not Found',
+    405: 'Method Not Allowed',
+    406: 'Not Acceptable',
+    407: 'Proxy Authentication Required',
+    408: 'Request Timeout',
+    409: 'Conflict',
+    410: 'Gone',
+    411: 'Length Required',
+    412: 'Precondition Failed',
+    413: 'Request Entity Too Large',
+    414: 'Request - URI Too Long',
+    415: 'Unsupported Media Type',
+    416: 'Requested Range Not Satisfiable',
+    417: 'Expectation Failed',
+    500: 'Internal Server Error',
+    501: 'Not Implemented',
+    502: 'Bad Gateway',
+    503: 'Service Unavailable',
+    504: 'Gateway Timeout',
+    505: 'HTTP Version Not Supported'
+};
 
 function parseJSON(source: string): any {
     const src = source.trim();
@@ -22,6 +66,7 @@ function parseJSON(source: string): any {
 }
 
 const requestCallbacks = new Map();
+let requestIdCounter = 0;
 
 export class Http {
     constructor() {
@@ -79,10 +124,18 @@ export class Http {
         const headers: Headers = {};
         let statusCode = 0;
         let id;
+        const counter = requestIdCounter;
         const request = <CancellablePromise>new Promise<any>((resolve, reject) => {
             try {
+
                 // initialize the options
                 const javaOptions = this.buildJavaOptions(options);
+
+                // @ts-ignore
+                if (global.__inspector && global.__inspector.isConnected) {
+                    NetworkAgent.requestWillBeSent(requestIdCounter, options);
+                }
+
                 const callback = new com.github.triniwiz.async.Async.Http.Callback({
                     onCancel(param: any): void {
                         reject({
@@ -93,8 +146,10 @@ export class Http {
                     },
                     onComplete(result: any): void {
                         let content;
+                        let isString = false;
                         if (result.content instanceof org.json.JSONObject || result.content instanceof org.json.JSONArray) {
                             content = deserialize(result.content);
+                            isString = true;
                         } else {
                             content = result.content;
                         }
@@ -106,6 +161,57 @@ export class Http {
                                 addHeader(headers, pair.key, pair.value);
                             }
                         }
+                        // send response data (for requestId) to network debugger
+
+
+                        let contentType = headers['Content-Type'];
+                        if (contentType == null) {
+                            contentType = headers['content-Type'];
+                        }
+                        let acceptHeader;
+
+                        if (contentType == null) {
+                            acceptHeader = headers['Accept'];
+                        } else {
+                            acceptHeader = contentType;
+                        }
+
+                        let returnType = 'text/plain';
+                        if (acceptHeader != null) {
+                            let acceptValues = acceptHeader.split(',');
+                            let quality = [];
+                            let defaultQuality = [];
+                            let customQuality = [];
+                            for (let value of acceptValues) {
+                                if (value.indexOf(';q=') > -1) {
+                                    customQuality.push(value);
+                                } else {
+                                    defaultQuality.push(value);
+                                }
+                            }
+                            customQuality = customQuality.sort((a, b) => {
+                                const a_quality = parseFloat(a.substring(a.indexOf(';q=')).replace(';q=', ''));
+                                const b_quality = parseFloat(b.substring(b.indexOf(';q=')).replace(';q=', ''));
+                                return (b_quality - a_quality);
+                            });
+                            quality.push(...defaultQuality);
+                            quality.push(...customQuality);
+                            returnType = quality[0];
+                        }
+
+                        result['statusCode'] = statusCode;
+                        // send response data (for requestId) to network debugger
+                        // @ts-ignore
+                        if (global.__inspector && global.__inspector.isConnected) {
+                            NetworkAgent.responseReceived(counter, {
+                                url: result.url,
+                                statusCode,
+                                headers,
+                                responseAsString: isString ? result.content.toString(): null,
+                                responseAsImage: null // TODO needs base64 Image
+                            }, headers);
+                        }
+
                         resolve({
                             url: result.url,
                             content,
@@ -155,6 +261,7 @@ export class Http {
                 });
                 id = com.github.triniwiz.async.Async.Http.makeRequest(javaOptions, callback);
                 requestCallbacks.set(id, callback);
+                requestIdCounter++;
             } catch (ex) {
                 reject({
                     type: HttpError.Error,

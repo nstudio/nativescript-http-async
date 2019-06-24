@@ -1,5 +1,6 @@
 import * as types from 'tns-core-modules/utils/types';
 import { Headers, HttpError, HttpRequestOptions } from './http-request-common';
+import * as domainDebugger from 'tns-core-modules/debugger';
 
 export type CancellablePromise = Promise<any> & { cancel: () => void };
 
@@ -50,8 +51,10 @@ class NSURLSessionTaskDelegateImpl extends NSObject
     private _url: string = '';
     private _request;
     private _loadingSent: boolean;
-
-    public static initWithRequestResolveRejectCallbackHeadersLoadingListener(
+    private _debuggerRequest;
+    private _response;
+    public static initWithDebuggerRequestResolveRejectCallbackHeadersLoadingListener(
+        debuggerRequest,
         request,
         resolve,
         reject,
@@ -67,6 +70,7 @@ class NSURLSessionTaskDelegateImpl extends NSObject
         delegate._onHeaders = onHeaders;
         delegate._onLoading = onLoading;
         delegate._data = NSMutableData.new();
+        delegate._debuggerRequest = debuggerRequest;
         return delegate;
     }
 
@@ -116,8 +120,8 @@ class NSURLSessionTaskDelegateImpl extends NSObject
                     total: this._lastProgress.total
                 });
             }
-        }else{
-            if(this._data){
+        } else {
+            if (this._data) {
                 this._data.appendData(data);
             }
         }
@@ -165,6 +169,7 @@ class NSURLSessionTaskDelegateImpl extends NSObject
         completionHandler(NSURLSessionResponseDisposition.Allow);
         this._statusCode = (response as any).statusCode;
         this._url = response.URL.absoluteString;
+        this._response = response;
         const method = this._request.HTTPMethod.toLowerCase();
         if (method !== 'post' && method !== 'put') {
             if (this._onHeaders) {
@@ -279,7 +284,7 @@ class NSURLSessionTaskDelegateImpl extends NSObject
                 acceptHeader = contentType;
             }
 
-            let returnType = 'text/html';
+            let returnType = 'text/plain';
             if (acceptHeader != null) {
                 let acceptValues = acceptHeader.split(',');
                 let quality = [];
@@ -311,6 +316,22 @@ class NSURLSessionTaskDelegateImpl extends NSObject
             } else {
                 content = this._data;
             }
+
+            if (this._debuggerRequest) {
+                this._debuggerRequest.mimeType = this._response.MIMEType;
+                this._debuggerRequest.data = this._data;
+                const debugResponse = {
+                    url: this._url,
+                    status: this._statusCode,
+                    statusText: NSHTTPURLResponse.localizedStringForStatusCode(this._statusCode),
+                    headers: headers,
+                    mimeType: this._response.MIMEType,
+                    fromDiskCache: false
+                };
+                this._debuggerRequest.responseReceived(debugResponse);
+                this._debuggerRequest.loadingFinished();
+            }
+
 
             this._resolve({
                 url: this._url,
@@ -368,6 +389,10 @@ export class Http {
             }
 
             try {
+
+                const network = domainDebugger.getNetwork();
+                const debugRequest = network && network.create();
+
                 const urlRequest = NSMutableURLRequest.requestWithURL(
                     NSURL.URLWithString(options.url)
                 );
@@ -415,7 +440,8 @@ export class Http {
 
                 let session = NSURLSession.sessionWithConfigurationDelegateDelegateQueue(
                     sessionConfig,
-                    NSURLSessionTaskDelegateImpl.initWithRequestResolveRejectCallbackHeadersLoadingListener(
+                    NSURLSessionTaskDelegateImpl.initWithDebuggerRequestResolveRejectCallbackHeadersLoadingListener(
+                        debugRequest,
                         urlRequest,
                         resolve,
                         reject,
@@ -428,6 +454,14 @@ export class Http {
 
                 const task = session.dataTaskWithRequest(urlRequest);
                 Http._tasks.set(id, task);
+                if (options.url && debugRequest) {
+                    const request = {
+                        url: options.url,
+                        method: 'GET',
+                        headers: options.headers
+                    };
+                    debugRequest.requestWillBeSent(request);
+                }
                 task.resume();
             } catch (ex) {
                 reject({
@@ -448,34 +482,34 @@ export class Http {
 
 
 function deserialize(nativeData) {
-  if (types.isNullOrUndefined(nativeData)) {
-    // some native values will already be js null values
-    // calling types.getClass below on null/undefined will cause crash
-    return null;
-  } else {
-    switch (types.getClass(nativeData)) {
-      case 'NSNull':
+    if (types.isNullOrUndefined(nativeData)) {
+        // some native values will already be js null values
+        // calling types.getClass below on null/undefined will cause crash
         return null;
-      case 'NSMutableDictionary':
-      case 'NSDictionary':
-        let obj = {};
-        const length = nativeData.count;
-        const keysArray = nativeData.allKeys as NSArray<any>;
-        for (let i = 0; i < length; i++) {
-          const nativeKey = keysArray.objectAtIndex(i);
-          obj[nativeKey] = deserialize(nativeData.objectForKey(nativeKey));
+    } else {
+        switch (types.getClass(nativeData)) {
+            case 'NSNull':
+                return null;
+            case 'NSMutableDictionary':
+            case 'NSDictionary':
+                let obj = {};
+                const length = nativeData.count;
+                const keysArray = nativeData.allKeys as NSArray<any>;
+                for (let i = 0; i < length; i++) {
+                    const nativeKey = keysArray.objectAtIndex(i);
+                    obj[nativeKey] = deserialize(nativeData.objectForKey(nativeKey));
+                }
+                return obj;
+            case 'NSMutableArray':
+            case 'NSArray':
+                let array = [];
+                const len = nativeData.count;
+                for (let i = 0; i < len; i++) {
+                    array[i] = deserialize(nativeData.objectAtIndex(i));
+                }
+                return array;
+            default:
+                return nativeData;
         }
-        return obj;
-      case 'NSMutableArray':
-      case 'NSArray':
-        let array = [];
-        const len = nativeData.count;
-        for (let i = 0; i < len; i++) {
-          array[i] = deserialize(nativeData.objectAtIndex(i));
-        }
-        return array;
-      default:
-        return nativeData;
     }
-  }
 }
