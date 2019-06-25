@@ -280,11 +280,15 @@ class NSURLSessionTaskDelegateImpl extends NSObject
             }
 
             let content;
+            let responseText;
             if (isTextContentType(returnType)) {
-                content = NSDataToString(this._data);
+                responseText = NSDataToString(this._data);
+                content = NSDataToString(responseText);
             } else if (returnType.indexOf('application/json') > -1) {
                 // @ts-ignore
-                content = deserialize(NSJSONSerialization.JSONObjectWithDataOptionsError(this._data, NSJSONReadingOptions.AllowFragments, null));
+                responseText = NSDataToString(this._data);
+                content = JSON.parse(responseText);
+                // content = deserialize(NSJSONSerialization.JSONObjectWithDataOptionsError(this._data, NSJSONReadingOptions.AllowFragments, null));
             } else {
                 content = this._data;
             }
@@ -308,6 +312,7 @@ class NSURLSessionTaskDelegateImpl extends NSObject
             this._resolve({
                 url: this._url,
                 content,
+                responseText,
                 statusCode: this._statusCode,
                 headers: headers
             });

@@ -429,6 +429,7 @@ export class TNSXMLHttpRequest {
                     this._response = JSON.parse(this.responseText);
                 } else if (typeof res.content === 'object') {
                     this._response = res.content;
+                    this._responseText = res.responseText;
                 } else {
                     if (isIOS) {
                         if (res.content instanceof NSData) {
