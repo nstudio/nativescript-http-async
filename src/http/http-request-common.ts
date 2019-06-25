@@ -1,3 +1,8 @@
+export class TNSHttpDebugging {
+  static enabled: boolean;
+  // TODO: could add other debuggin options
+}
+
 export class ProgressEvent {
     private _type: string;
     private _lengthComputable: boolean;

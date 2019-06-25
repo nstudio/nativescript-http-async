@@ -5,7 +5,7 @@ import { ObservableArray } from 'tns-core-modules/data/observable-array';
 import { from } from 'rxjs';
 import { map, mergeMap , concatMap,switchMap} from 'rxjs/internal/operators';
 import * as imageSrc from 'tns-core-modules/image-source';
-import { TNSXMLHttpRequest, FileManager } from 'nativescript-async';
+import { TNSXMLHttpRequest, FileManager } from 'nativescript-http-async';
 import * as fs from 'tns-core-modules/file-system';
 import { releaseNativeObject } from 'tns-core-modules/utils/utils';
 declare var UIImageJPEGRepresentation, NSDataBase64EncodingOptions, android, java;

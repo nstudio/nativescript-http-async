@@ -12,7 +12,7 @@
   "license": "SEE LICENSE IN <your-license-filename>",
   "repository": "<fill-your-repository-here>",
   "dependencies": {
-    "nativescript-async": "file:../src",
+    "nativescript-http-async": "file:../src",
     "nativescript-theme-core": "~1.0.4",
     "tns-core-modules": "~5.4.0"
   },

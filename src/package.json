@@ -1,7 +1,7 @@
 {
-	"name": "nativescript-async",
-	"version": "0.0.1",
-	"description": "Async modules for NativeScript",
+	"name": "nativescript-http-async",
+	"version": "1.0.0",
+	"description": "Http async multi-threaded for NativeScript",
 	"main": "async",
 	"typings": "index.d.ts",
 	"nativescript": {
@@ -12,7 +12,7 @@
 	},
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/triniwiz/nativescript-async.git"
+		"url": "https://github.com/nstudio/nativescript-http-async.git"
 	},
 	"scripts": {
 		"tsc": "npm i && tsc",
@@ -29,7 +29,7 @@
 		"demo-angular.ios": "npm run tsc && cd ../demo-angular && tns run ios --emulator",
 		"demo-angular.android": "npm run tsc && cd ../demo-angular && tns run android --emulator",
 		"demo-angular.reset": "cd ../demo-angular && npx rimraf -- hooks node_modules platforms package-lock.json",
-		"plugin.prepare": "npm run build && cd ../demo && tns plugin remove nativescript-async && tns plugin add ../src && cd ../demo-angular && tns plugin remove nativescript-async && tns plugin add ../src",
+		"plugin.prepare": "npm run build && cd ../demo && tns plugin remove nativescript-http-async && tns plugin add ../src && cd ../demo-angular && tns plugin remove nativescript-http-async && tns plugin add ../src",
 		"clean": "npm run demo.reset && npm run demo-angular.reset && npx rimraf -- node_modules package-lock.json && npm i",
 		"ngc": "npm i && npm run ngc.clean && node --max-old-space-size=8192 node_modules/.bin/ngc -skipLibCheck -p tsconfig.json",
 		"ngc.clean": "find ./ angular/ -name '*.metadata.json' -delete && find ./ angular/ -name '*.ngsummary.json' -delete"
@@ -45,10 +45,10 @@
 		"email": "Fortune"
 	},
 	"bugs": {
-		"url": "https://github.com/triniwiz/nativescript-async/issues"
+		"url": "https://github.com/nstudio/nativescript-http-async/issues"
 	},
 	"license": "Apache-2.0",
-	"homepage": "https://github.com/triniwiz/nativescript-async",
+	"homepage": "https://github.com/nstudio/nativescript-http-async",
 	"readmeFilename": "README.md",
 	"devDependencies": {
 		"@angular/common": "^8.0.1",
@@ -69,6 +69,8 @@
 		"typescript": "~3.4.5",
 		"zone.js": "^0.8.26"
 	},
-	"dependencies": {},
+	"dependencies": {
+		"@types/node": "^12.0.10"
+	},
 	"bootstrapper": "nativescript-plugin-seed"
 }

@@ -1,6 +1,5 @@
 import * as types from 'tns-core-modules/utils/types';
-import { Headers, HttpError, HttpRequestOptions } from './http-request-common';
-import * as domainDebugger from 'tns-core-modules/debugger';
+import { Headers, HttpError, HttpRequestOptions, TNSHttpDebugging } from './http-request-common';
 
 export type CancellablePromise = Promise<any> & { cancel: () => void };
 
@@ -98,32 +97,22 @@ class NSURLSessionTaskDelegateImpl extends NSObject
         dataTask: NSURLSessionDataTask,
         data: NSData
     ) {
-        const method = this._request.HTTPMethod.toLowerCase();
-        if (method !== 'post' && method !== 'put') {
-            if (!this._loadingSent) {
-                const lengthComputable = this._lastProgress.lengthComputable;
-                this._onLoading({
-                    lengthComputable,
-                    loaded: this._data.length,
-                    total: this._lastProgress.total
-                });
-                this._loadingSent = true;
-            }
-            if (this._data) {
-                this._data.appendData(data);
-            }
-            if (this._onProgress) {
-                const lengthComputable = this._lastProgress.lengthComputable;
-                this._onProgress({
-                    lengthComputable,
-                    loaded: this._data.length,
-                    total: this._lastProgress.total
-                });
-            }
-        } else {
-            if (this._data) {
-                this._data.appendData(data);
-            }
+        // const method = this._request.HTTPMethod.toLowerCase();
+        if (data) {
+          this._data.appendData(data);
+
+          const lastProgress: any = this._lastProgress || {
+            lengthComputable: false,
+            total: 0
+          };
+          lastProgress.loaded = this._data.length;
+          if (this._onLoading && !this._loadingSent) {
+              this._onLoading(lastProgress);
+              this._loadingSent = true;
+          }
+          if (this._onProgress) {
+              this._onProgress(lastProgress);
+          }
         }
     }
 
@@ -134,30 +123,20 @@ class NSURLSessionTaskDelegateImpl extends NSObject
         totalBytesSent,
         totalBytesExpectedToSend
     ) {
-        if (this._onProgress) {
-            const method = this._request.HTTPMethod.toLowerCase();
-            if (method === 'post' || method === 'put') {
-                const lengthComputable = totalBytesExpectedToSend > -1;
-                if (!this._loadingSent) {
-                    this._onLoading({
-                        lengthComputable,
-                        loaded: totalBytesSent,
-                        total: lengthComputable ? totalBytesExpectedToSend : 0
-                    });
-                    this._loadingSent = true;
-                }
-                this._onProgress({
-                    lengthComputable,
-                    loaded: totalBytesSent,
-                    total: lengthComputable ? totalBytesExpectedToSend : 0
-                });
-                this._lastProgress = {
-                    lengthComputable,
-                    loaded: totalBytesSent,
-                    total: lengthComputable ? totalBytesExpectedToSend : 0
-                };
-            }
+      if (this._onLoading || this._onProgress) {
+        this._lastProgress = {
+          lengthComputable: totalBytesExpectedToSend > -1,
+          loaded: totalBytesSent,
+          total: totalBytesExpectedToSend > -1 ? totalBytesExpectedToSend : 0
+        };
+        if (this._onLoading && !this._loadingSent) {
+          this._onLoading(this._lastProgress);
+          this._loadingSent = true;
         }
+        if (this._onProgress) {
+            this._onProgress(this._lastProgress);
+        }
+      }
     }
 
     public URLSessionDataTaskDidReceiveResponseCompletionHandler(
@@ -170,40 +149,33 @@ class NSURLSessionTaskDelegateImpl extends NSObject
         this._statusCode = (response as any).statusCode;
         this._url = response.URL.absoluteString;
         this._response = response;
-        const method = this._request.HTTPMethod.toLowerCase();
-        if (method !== 'post' && method !== 'put') {
-            if (this._onHeaders) {
-                const headers = {};
-                if (response && response.allHeaderFields) {
-                    const headerFields = response.allHeaderFields;
-                    headerFields.enumerateKeysAndObjectsUsingBlock(
-                        (key, value, stop) => {
-                            addHeader(headers, key, value);
-                        }
-                    );
-                }
-                this._onHeaders(
-                    {
-                        headers,
-                        status: this._statusCode
+        if (this._onHeaders) {
+            const headers = {};
+            if (response && response.allHeaderFields) {
+                const headerFields = response.allHeaderFields;
+                headerFields.enumerateKeysAndObjectsUsingBlock(
+                    (key, value, stop) => {
+                        addHeader(headers, key, value);
                     }
                 );
             }
-            if (this._onProgress) {
-                const lengthComputable =
-                    response.expectedContentLength &&
-                    response.expectedContentLength > -1;
-                this._onProgress({
-                    lengthComputable,
-                    loaded: 0,
-                    total: lengthComputable ? response.expectedContentLength : 0
-                });
-                this._lastProgress = {
-                    lengthComputable,
-                    loaded: 0,
-                    total: lengthComputable ? response.expectedContentLength : 0
-                };
-            }
+            this._onHeaders(
+                {
+                    headers,
+                    status: this._statusCode
+                }
+            );
+        }
+        if (this._onProgress) {
+            const lengthComputable =
+                response.expectedContentLength &&
+                response.expectedContentLength > -1;
+            this._lastProgress = {
+                lengthComputable,
+                loaded: 0,
+                total: lengthComputable ? response.expectedContentLength : 0
+            };
+            this._onProgress(this._lastProgress);
         }
     }
 
@@ -273,12 +245,12 @@ class NSURLSessionTaskDelegateImpl extends NSObject
             }
             const request = this._request as NSURLRequest;
             let contentType = request.allHTTPHeaderFields.objectForKey('Content-Type');
-            if (contentType == null) {
-                contentType = request.allHTTPHeaderFields.objectForKey('content-Type');
+            if (!contentType) {
+                contentType = request.allHTTPHeaderFields.objectForKey('content-type');
             }
             let acceptHeader;
 
-            if (contentType == null) {
+            if (!contentType) {
                 acceptHeader = request.allHTTPHeaderFields.objectForKey('Accept');
             } else {
                 acceptHeader = contentType;
@@ -390,8 +362,13 @@ export class Http {
 
             try {
 
-                const network = domainDebugger.getNetwork();
-                const debugRequest = network && network.create();
+                let domainDebugger;
+                let debugRequest;
+                if (TNSHttpDebugging.enabled) {
+                  domainDebugger = require('tns-core-modules/debugger');
+                  const network = domainDebugger.getNetwork();
+                  debugRequest = network && network.create();
+                }
 
                 const urlRequest = NSMutableURLRequest.requestWithURL(
                     NSURL.URLWithString(options.url)
