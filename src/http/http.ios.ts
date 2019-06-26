@@ -283,12 +283,21 @@ class NSURLSessionTaskDelegateImpl extends NSObject
             let responseText;
             if (isTextContentType(returnType)) {
                 responseText = NSDataToString(this._data);
-                content = NSDataToString(responseText);
+                content = responseText;
             } else if (returnType.indexOf('application/json') > -1) {
                 // @ts-ignore
-                responseText = NSDataToString(this._data);
-                content = JSON.parse(responseText);
-                // content = deserialize(NSJSONSerialization.JSONObjectWithDataOptionsError(this._data, NSJSONReadingOptions.AllowFragments, null));
+                try {
+                  responseText = NSDataToString(this._data);
+                  content = JSON.parse(responseText);
+                  // content = deserialize(NSJSONSerialization.JSONObjectWithDataOptionsError(this._data, NSJSONReadingOptions.AllowFragments, null));
+                } catch (err) {
+                  this._reject({
+                      type: HttpError.Error,
+                      ios: null,
+                      message: err
+                  });
+                  return;
+                }
             } else {
                 content = this._data;
             }

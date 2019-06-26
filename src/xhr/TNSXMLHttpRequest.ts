@@ -426,7 +426,11 @@ export class TNSXMLHttpRequest {
             if (this.responseType === XMLHttpRequestResponseType.json) {
                 if (typeof res.content === 'string') {
                     this._responseText = res.content;
-                    this._response = JSON.parse(this.responseText);
+                    try {
+                      this._response = JSON.parse(this.responseText);
+                    } catch (err) {
+                      // this should probably be caught before the promise resolves
+                    }
                 } else if (typeof res.content === 'object') {
                     this._response = res.content;
                     this._responseText = res.responseText;
