@@ -65,6 +65,25 @@ function parseJSON(source: string): any {
     return JSON.parse(src);
 }
 
+const textTypes: string[] = [
+    'text/plain',
+    'application/xml',
+    'application/rss+xml',
+    'text/html',
+    'text/xml'
+];
+
+const isTextContentType = (contentType: string): boolean => {
+    let result = false;
+    for (let i = 0; i < textTypes.length; i++) {
+        if (contentType.toLowerCase().indexOf(textTypes[i]) >= 0) {
+            result = true;
+            break;
+        }
+    }
+    return result;
+};
+
 const requestCallbacks = new Map();
 let requestIdCounter = 0;
 
@@ -146,12 +165,35 @@ export class Http {
                     },
                     onComplete(result: any): void {
                         let content;
+                        let responseText;
                         let isString = false;
                         if (result.content instanceof org.json.JSONObject || result.content instanceof org.json.JSONArray) {
                             content = deserialize(result.content);
+                            try {
+                                responseText = JSON.stringify(content);
+                            } catch (err) {
+                                this._reject({
+                                    type: HttpError.Error,
+                                    ios: null,
+                                    message: err
+                                });
+                                return;
+                            }
                             isString = true;
                         } else {
                             content = result.content;
+                            if (content instanceof java.lang.String || typeof content === 'string') {
+                                try {
+                                    responseText = JSON.stringify(content);
+                                } catch (err) {
+                                    this._reject({
+                                        type: HttpError.Error,
+                                        ios: null,
+                                        message: err
+                                    });
+                                    return;
+                                }
+                            }
                         }
                         if (result && result.headers) {
                             const length = result.headers.size();
@@ -207,14 +249,27 @@ export class Http {
                                 url: result.url,
                                 statusCode,
                                 headers,
-                                responseAsString: isString ? result.content.toString(): null,
+                                responseAsString: isString ? result.content.toString() : null,
                                 responseAsImage: null // TODO needs base64 Image
                             }, headers);
                         }
 
+                        if (isTextContentType(returnType) && !responseText) {
+                            try {
+                                responseText = JSON.stringify(content);
+                            } catch (err) {
+                                this._reject({
+                                    type: HttpError.Error,
+                                    ios: null,
+                                    message: err
+                                });
+                                return;
+                            }
+                        }
                         resolve({
                             url: result.url,
                             content,
+                            responseText,
                             statusCode: statusCode,
                             headers: headers
                         });
