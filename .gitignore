@@ -29,3 +29,4 @@ demo/report/stats.json
 !src/file/file.d.ts
 !src/http/http.d.ts
 !src/typings
+src/platforms/android/*.aar
