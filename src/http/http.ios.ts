@@ -52,6 +52,7 @@ class NSURLSessionTaskDelegateImpl extends NSObject
     private _loadingSent: boolean;
     private _debuggerRequest;
     private _response;
+
     public static initWithDebuggerRequestResolveRejectCallbackHeadersLoadingListener(
         debuggerRequest,
         request,
@@ -99,20 +100,20 @@ class NSURLSessionTaskDelegateImpl extends NSObject
     ) {
         // const method = this._request.HTTPMethod.toLowerCase();
         if (data) {
-          this._data.appendData(data);
+            this._data.appendData(data);
 
-          const lastProgress: any = this._lastProgress || {
-            lengthComputable: false,
-            total: 0
-          };
-          lastProgress.loaded = this._data.length;
-          if (this._onLoading && !this._loadingSent) {
-              this._onLoading(lastProgress);
-              this._loadingSent = true;
-          }
-          if (this._onProgress) {
-              this._onProgress(lastProgress);
-          }
+            const lastProgress: any = this._lastProgress || {
+                lengthComputable: false,
+                total: 0
+            };
+            lastProgress.loaded = this._data.length;
+            if (this._onLoading && !this._loadingSent) {
+                this._onLoading(lastProgress);
+                this._loadingSent = true;
+            }
+            if (this._onProgress) {
+                this._onProgress(lastProgress);
+            }
         }
     }
 
@@ -123,20 +124,20 @@ class NSURLSessionTaskDelegateImpl extends NSObject
         totalBytesSent,
         totalBytesExpectedToSend
     ) {
-      if (this._onLoading || this._onProgress) {
-        this._lastProgress = {
-          lengthComputable: totalBytesExpectedToSend > -1,
-          loaded: totalBytesSent,
-          total: totalBytesExpectedToSend > -1 ? totalBytesExpectedToSend : 0
-        };
-        if (this._onLoading && !this._loadingSent) {
-          this._onLoading(this._lastProgress);
-          this._loadingSent = true;
+        if (this._onLoading || this._onProgress) {
+            this._lastProgress = {
+                lengthComputable: totalBytesExpectedToSend > -1,
+                loaded: totalBytesSent,
+                total: totalBytesExpectedToSend > -1 ? totalBytesExpectedToSend : 0
+            };
+            if (this._onLoading && !this._loadingSent) {
+                this._onLoading(this._lastProgress);
+                this._loadingSent = true;
+            }
+            if (this._onProgress) {
+                this._onProgress(this._lastProgress);
+            }
         }
-        if (this._onProgress) {
-            this._onProgress(this._lastProgress);
-        }
-      }
     }
 
     public URLSessionDataTaskDidReceiveResponseCompletionHandler(
@@ -223,7 +224,7 @@ class NSURLSessionTaskDelegateImpl extends NSObject
             const isTextContentType = (contentType: string): boolean => {
                 let result = false;
                 for (let i = 0; i < textTypes.length; i++) {
-                    if (contentType.toLowerCase().indexOf(textTypes[i]) >= 0) {
+                    if (types.isString(contentType) && contentType.toLowerCase().indexOf(textTypes[i]) >= 0) {
                         result = true;
                         break;
                     }
@@ -257,7 +258,7 @@ class NSURLSessionTaskDelegateImpl extends NSObject
             }
 
             let returnType = 'text/plain';
-            if (acceptHeader != null) {
+            if (!types.isNullOrUndefined(acceptHeader) && types.isString(acceptHeader)) {
                 let acceptValues = acceptHeader.split(',');
                 let quality = [];
                 let defaultQuality = [];
@@ -284,19 +285,19 @@ class NSURLSessionTaskDelegateImpl extends NSObject
             if (isTextContentType(returnType)) {
                 responseText = NSDataToString(this._data);
                 content = responseText;
-            } else if (returnType.indexOf('application/json') > -1) {
+            } else if (types.isString(returnType) && returnType.indexOf('application/json') > -1) {
                 // @ts-ignore
                 try {
-                  responseText = NSDataToString(this._data);
-                  content = JSON.parse(responseText);
-                  // content = deserialize(NSJSONSerialization.JSONObjectWithDataOptionsError(this._data, NSJSONReadingOptions.AllowFragments, null));
+                    responseText = NSDataToString(this._data);
+                    content = JSON.parse(responseText);
+                    // content = deserialize(NSJSONSerialization.JSONObjectWithDataOptionsError(this._data, NSJSONReadingOptions.AllowFragments, null));
                 } catch (err) {
-                  this._reject({
-                      type: HttpError.Error,
-                      ios: null,
-                      message: err
-                  });
-                  return;
+                    this._reject({
+                        type: HttpError.Error,
+                        ios: null,
+                        message: err
+                    });
+                    return;
                 }
             } else {
                 content = this._data;
@@ -379,9 +380,9 @@ export class Http {
                 let domainDebugger;
                 let debugRequest;
                 if (TNSHttpDebugging.enabled) {
-                  domainDebugger = require('tns-core-modules/debugger');
-                  const network = domainDebugger.getNetwork();
-                  debugRequest = network && network.create();
+                    domainDebugger = require('tns-core-modules/debugger');
+                    const network = domainDebugger.getNetwork();
+                    debugRequest = network && network.create();
                 }
 
                 const urlRequest = NSMutableURLRequest.requestWithURL(

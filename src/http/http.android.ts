@@ -92,7 +92,7 @@ export class Http {
     }
 
     buildJavaOptions(options: HttpRequestOptions) {
-        if (typeof options.url !== 'string') {
+        if (!types.isString(options.url)) {
             throw new Error('Http request must provide a valid url.');
         }
 
@@ -101,18 +101,18 @@ export class Http {
         javaOptions.url = options.url;
 
         let method;
-        if (typeof options.method === 'string') {
+        if (types.isString(typeof options.method)) {
             javaOptions.method = options.method;
             method = options.method.toLowerCase();
         }
         if ((method && method === 'post') || method === 'put') {
             if (
-                typeof options.content === 'string'
+                types.isString(options.content)
             ) {
                 javaOptions.content = new java.lang.String(options.content);
             } else if (options.content instanceof FormData) {
                 javaOptions.content = new java.lang.String(options.content.toString());
-            } else if (typeof options.content === 'object') {
+            } else if (types.isObject(options.content)) {
                 javaOptions.content = serialize(options.content);
             }
         }
@@ -182,7 +182,7 @@ export class Http {
                             isString = true;
                         } else {
                             content = result.content;
-                            if (content instanceof java.lang.String || typeof content === 'string') {
+                            if (content instanceof java.lang.String || types.isString(content)) {
                                 try {
                                     responseText = JSON.stringify(content);
                                 } catch (err) {
@@ -208,7 +208,7 @@ export class Http {
 
                         let contentType = headers['Content-Type'];
                         if (contentType == null) {
-                            contentType = headers['content-Type'];
+                            contentType = headers['content-type'];
                         }
                         let acceptHeader;
 
@@ -219,7 +219,7 @@ export class Http {
                         }
 
                         let returnType = 'text/plain';
-                        if (acceptHeader != null) {
+                        if (!types.isNullOrUndefined(acceptHeader) && types.isString(acceptHeader)) {
                             let acceptValues = acceptHeader.split(',');
                             let quality = [];
                             let defaultQuality = [];
