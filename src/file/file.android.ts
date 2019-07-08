@@ -35,6 +35,11 @@ export class FileManager {
             }
         }));
     }
+
+    public static deleteFile(path: string, options: Options = {asStream: false}, callback: (...args) => void) {
+      // TODO
+      callback(null, true);
+    }
 }
 
 export interface Options {

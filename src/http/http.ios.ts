@@ -1,5 +1,8 @@
 import * as types from 'tns-core-modules/utils/types';
-import { Headers, HttpError, HttpRequestOptions, TNSHttpDebugging } from './http-request-common';
+import { File, knownFolders, path } from 'tns-core-modules/file-system';
+import { FileManager } from '../file/file';
+import { Headers, HttpError, HttpRequestOptions, TNSHttpSettings, SaveImageStorageKey, isImageUrl, fileNameFromPath } from './http-request-common';
+import { getString, setString } from 'tns-core-modules/application-settings';
 
 export type CancellablePromise = Promise<any> & { cancel: () => void };
 
@@ -302,6 +305,16 @@ class NSURLSessionTaskDelegateImpl extends NSObject
             } else {
                 content = this._data;
             }
+            if (TNSHttpSettings.saveImage && TNSHttpSettings.currentlySavedImages && TNSHttpSettings.currentlySavedImages[this._url]) {
+              // ensure saved to disk
+              if (TNSHttpSettings.currentlySavedImages[this._url].localPath) {
+                FileManager.writeFile(content, TNSHttpSettings.currentlySavedImages[this._url].localPath, function(error, result) {
+                  if (TNSHttpSettings.debug) {
+                    console.log('http image save:', error ? error : result);
+                  }
+                });
+              }
+            }
 
             if (this._debuggerRequest) {
                 this._debuggerRequest.mimeType = this._response.MIMEType;
@@ -377,14 +390,8 @@ export class Http {
 
             try {
 
-                let domainDebugger;
-                let debugRequest;
-                if (TNSHttpDebugging.enabled) {
-                    domainDebugger = require('tns-core-modules/debugger');
-                    const network = domainDebugger.getNetwork();
-                    debugRequest = network && network.create();
-                }
-
+              const makeRemoteRequest = () => {
+                // make remote request
                 const urlRequest = NSMutableURLRequest.requestWithURL(
                     NSURL.URLWithString(options.url)
                 );
@@ -455,6 +462,74 @@ export class Http {
                     debugRequest.requestWillBeSent(request);
                 }
                 task.resume();
+              };
+
+                let domainDebugger;
+                let debugRequest;
+                if (TNSHttpSettings.debug) {
+                    domainDebugger = require('tns-core-modules/debugger');
+                    const network = domainDebugger.getNetwork();
+                    debugRequest = network && network.create();
+                }
+
+                if (TNSHttpSettings.saveImage && isImageUrl(options.url)) {
+                  // handle saved images to disk
+                  if (!TNSHttpSettings.currentlySavedImages) {
+                    const stored = getString(SaveImageStorageKey);
+                    if (stored) {
+                      try {
+                        TNSHttpSettings.currentlySavedImages = JSON.parse(stored);
+                      } catch (err) {
+                        TNSHttpSettings.currentlySavedImages = {};
+                      }
+                    } else {
+                      TNSHttpSettings.currentlySavedImages = {};
+                    }
+                  }
+
+                  const imageSetting = TNSHttpSettings.currentlySavedImages[options.url];
+                  const requests = imageSetting ? imageSetting.requests : 0;
+                  let localPath: string;
+                  if (imageSetting && imageSetting.localPath && File.exists(imageSetting.localPath)) {
+                    // previously saved to disk
+                    resolve({
+                      url: options.url,
+                      responseText: '',
+                      statusCode: 200,
+                      content: File.fromPath(imageSetting.localPath).readSync(function(err) {
+                        if (TNSHttpSettings.debug) {
+                          console.log('http image load error:', err);
+                        }
+                      }),
+                      headers: {
+                        'Content-Type': 'arraybuffer'
+                      }
+                    });
+
+                  } else if (requests >= TNSHttpSettings.saveImage.numberOfRequests) {
+                    // setup to write to disk when response finishes
+                    let filename = fileNameFromPath(options.url);
+                    if (filename.indexOf('?')) {
+                      // strip any params if were any
+                      filename = filename.split('?')[0];
+                    }
+                    localPath = path.join(knownFolders.documents().path, filename);
+                    makeRemoteRequest();
+                  }
+
+                  // save settings
+                  TNSHttpSettings.currentlySavedImages[options.url] = {
+                    ...(imageSetting || {}),
+                    date: Date.now(),
+                    requests: requests + 1,
+                    localPath
+                  };
+                  setString(SaveImageStorageKey, JSON.stringify(TNSHttpSettings.currentlySavedImages));
+
+                } else {
+                  makeRemoteRequest();
+                }
+
             } catch (ex) {
                 reject({
                     type: HttpError.Error,

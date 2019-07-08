@@ -1,7 +1,7 @@
 import { NgModule, ModuleWithProviders, Optional, SkipSelf } from '@angular/core';
 import { TNSBrowserXhr } from './TNSBrowserXhr';
 import { XhrFactory } from '@angular/common/http';
-import { TNSHttpDebugging } from '../http/http-request-common';
+import { TNSHttpSettings, ISaveImageSettings } from '../http/http-request-common';
 
 const BASE_PROVIDERS = [
     TNSBrowserXhr,
@@ -12,9 +12,12 @@ const BASE_PROVIDERS = [
     providers: BASE_PROVIDERS
 })
 export class NativeScriptHttpAsyncModule {
-  static forRoot(options: { configuredProviders?: Array<any>; debug?: boolean; }): ModuleWithProviders {
+  static forRoot(options: { configuredProviders?: Array<any>; debug?: boolean; saveImageSettings?: ISaveImageSettings }): ModuleWithProviders {
     if (options.debug) {
-      TNSHttpDebugging.enabled = true;
+      TNSHttpSettings.debug = true;
+    }
+    if (options.saveImageSettings) {
+      TNSHttpSettings.saveImage = options.saveImageSettings;
     }
     return {
       ngModule: NativeScriptHttpAsyncModule,
