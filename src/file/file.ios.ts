@@ -27,6 +27,17 @@ export class FileManager {
             }
         });
     }
+
+    public static deleteFile(path: string, options: Options = {asStream: false}, callback: (...args) => void) {
+      dispatch_async(background_queue, () => {
+          try {
+              NSFileManager.defaultManager.removeItemAtPathError(path);
+              callback(null, true);
+          } catch (e) {
+              callback(e, false);
+          }
+      });
+    }
 }
 
 export interface Options {

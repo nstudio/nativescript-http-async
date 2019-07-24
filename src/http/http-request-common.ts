@@ -1,7 +1,32 @@
-export class TNSHttpDebugging {
-  static enabled: boolean;
-  // TODO: could add other debuggin options
+export interface ISaveImageSettings {
+  numberOfRequests?: number;
+  removeAfterDays?: number;
+  storageKey?: string;
 }
+
+export const SaveImageStorageKey = 'http.saved-images';
+export function isImageUrl(url: string) {
+  return url && /(http(s?):)([/|.|\w|\s|-])*\.(?:jpg|gif|png)/ig.test(url);
+}
+export function fileNameFromPath(fullPath: string) {
+  let filename = '';
+  if (fullPath) {
+    filename = fullPath.replace(/^.*[\\\/]/ig, '');
+  }
+  return filename;
+}
+
+export class TNSHttpSettings {
+  static debug: boolean;
+  static saveImage: ISaveImageSettings;
+  static currentlySavedImages: { [url: string]: {
+      date: number;
+      requests: number;
+      localPath?: string;
+    }
+  };
+}
+
 
 export class ProgressEvent {
     private _type: string;
