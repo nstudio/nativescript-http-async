@@ -1,6 +1,17 @@
-import { Headers, HttpError, HttpRequestOptions } from './http-request-common';
+import {
+    fileNameFromPath,
+    Headers,
+    HttpError,
+    HttpRequestOptions,
+    isImageUrl,
+    SaveImageStorageKey,
+    TNSHttpSettings
+} from './http-request-common';
 import * as types from 'tns-core-modules/utils/types';
 import { NetworkAgent } from 'tns-core-modules/debugger';
+import { getString, setString } from 'tns-core-modules/application-settings';
+import { File, knownFolders, path } from 'tns-core-modules/file-system';
+import { FileManager } from '..';
 
 export type CancellablePromise = Promise<any> & { cancel: () => void };
 
@@ -150,172 +161,229 @@ export class Http {
                 // initialize the options
                 const javaOptions = this.buildJavaOptions(options);
 
-                // @ts-ignore
-                if (global.__inspector && global.__inspector.isConnected) {
-                    NetworkAgent.requestWillBeSent(requestIdCounter, options);
+                if (TNSHttpSettings.debug) {
+                    // @ts-ignore
+                    if (global.__inspector && global.__inspector.isConnected) {
+                        NetworkAgent.requestWillBeSent(requestIdCounter, options);
+                    }
                 }
 
-                const callback = new com.github.triniwiz.async.Async.Http.Callback({
-                    onCancel(param: any): void {
-                        reject({
-                            type: HttpError.Cancelled,
-                            result: param
-                        });
-                        requestCallbacks.delete(id);
-                    },
-                    onComplete(result: any): void {
-                        let content;
-                        let responseText;
-                        let isString = false;
-                        if (result.content instanceof org.json.JSONObject || result.content instanceof org.json.JSONArray) {
-                            content = deserialize(result.content);
-                            try {
-                                responseText = JSON.stringify(content);
-                            } catch (err) {
-                                this._reject({
-                                    type: HttpError.Error,
-                                    ios: null,
-                                    message: err
-                                });
-                                return;
+                const makeRemoteRequest = () => {
+                    const callback = new com.github.triniwiz.async.Async.Http.Callback({
+                        onCancel(param: any): void {
+                            reject({
+                                type: HttpError.Cancelled,
+                                result: param
+                            });
+                            requestCallbacks.delete(id);
+                        },
+                        onComplete(result: any): void {
+                            let content;
+                            let responseText;
+                            let isString = false;
+                            if (result.content instanceof org.json.JSONObject || result.content instanceof org.json.JSONArray) {
+                                content = deserialize(result.content);
+                                responseText = result.contentText;
+                                isString = true;
+                            } else {
+                                content = result.content;
+                                responseText = result.contentText;
                             }
-                            isString = true;
-                        } else {
-                            content = result.content;
-                            if (content instanceof java.lang.String || types.isString(content)) {
-                                try {
-                                    responseText = JSON.stringify(content);
-                                } catch (err) {
-                                    this._reject({
-                                        type: HttpError.Error,
-                                        ios: null,
-                                        message: err
-                                    });
-                                    return;
+                            if (result && result.headers) {
+                                const length = result.headers.size();
+                                let pair;
+                                for (let i = 0; i < length; i++) {
+                                    pair = result.headers.get(i);
+                                    addHeader(headers, pair.key, pair.value);
                                 }
                             }
-                        }
-                        if (result && result.headers) {
-                            const length = result.headers.size();
+                            // send response data (for requestId) to network debugger
+
+
+                            let contentType = headers['Content-Type'];
+                            if (types.isNullOrUndefined(contentType)) {
+                                contentType = headers['content-type'];
+                            }
+                            let acceptHeader;
+
+                            if (types.isNullOrUndefined(contentType)) {
+                                acceptHeader = headers['Accept'];
+                                if (types.isNullOrUndefined(acceptHeader)) {
+                                    acceptHeader = headers['accept'];
+                                }
+                            } else {
+                                acceptHeader = contentType;
+                            }
+
+                            let returnType = 'text/plain';
+                            if (!types.isNullOrUndefined(acceptHeader) && types.isString(acceptHeader)) {
+                                let acceptValues = acceptHeader.split(',');
+                                let quality = [];
+                                let defaultQuality = [];
+                                let customQuality = [];
+                                for (let value of acceptValues) {
+                                    if (value.indexOf(';q=') > -1) {
+                                        customQuality.push(value);
+                                    } else {
+                                        defaultQuality.push(value);
+                                    }
+                                }
+                                customQuality = customQuality.sort((a, b) => {
+                                    const a_quality = parseFloat(a.substring(a.indexOf(';q=')).replace(';q=', ''));
+                                    const b_quality = parseFloat(b.substring(b.indexOf(';q=')).replace(';q=', ''));
+                                    return (b_quality - a_quality);
+                                });
+                                quality.push(...defaultQuality);
+                                quality.push(...customQuality);
+                                returnType = quality[0];
+                            }
+
+                            result['statusCode'] = statusCode;
+
+                            if (TNSHttpSettings.debug) {
+                                // send response data (for requestId) to network debugger
+                                // @ts-ignore
+                                if (global.__inspector && global.__inspector.isConnected) {
+                                    NetworkAgent.responseReceived(counter, {
+                                        url: result.url,
+                                        statusCode,
+                                        headers,
+                                        responseAsString: isString ? (result.contentText ? result.contentText : result.content.toString()) : null,
+                                        responseAsImage: null // TODO needs base64 Image
+                                    }, headers);
+                                }
+
+                            }
+
+                            if (isTextContentType(returnType) && types.isNullOrUndefined(responseText)) {
+                                responseText = result.contentText;
+                            }
+
+
+                            if (TNSHttpSettings.saveImage && TNSHttpSettings.currentlySavedImages && TNSHttpSettings.currentlySavedImages[this._url]) {
+                                // ensure saved to disk
+                                if (TNSHttpSettings.currentlySavedImages[this._url].localPath) {
+                                    FileManager.writeFile(content, TNSHttpSettings.currentlySavedImages[this._url].localPath, function (error, result) {
+                                        if (TNSHttpSettings.debug) {
+                                            console.log('http image save:', error ? error : result);
+                                        }
+                                    });
+                                }
+                            }
+
+                            resolve({
+                                url: result.url,
+                                content,
+                                responseText,
+                                statusCode: statusCode,
+                                headers: headers
+                            });
+                            requestCallbacks.delete(id);
+                        },
+                        onError(param0: string, param1: java.lang.Exception): void {
+                            reject({
+                                type: HttpError.Error,
+                                message: param0
+                            });
+                            requestCallbacks.delete(id);
+                        },
+                        onHeaders(jHeaders: any, status: number): void {
+                            statusCode = status;
+                            const length = jHeaders.size();
                             let pair;
                             for (let i = 0; i < length; i++) {
-                                pair = result.headers.get(i);
+                                pair = jHeaders.get(i);
                                 addHeader(headers, pair.key, pair.value);
                             }
+                            if (options.onHeaders) {
+                                options.onHeaders(headers, statusCode);
+                            }
+                            requestCallbacks.delete(id);
+                        }, onLoading(): void {
+                            options.onLoading();
+                            requestCallbacks.delete(id);
+                        }, onProgress(lengthComputable: boolean, loaded: number, total: number): void {
+                            if (options.onProgress) {
+                                options.onProgress({
+                                    lengthComputable,
+                                    loaded,
+                                    total
+                                });
+                            }
+                            requestCallbacks.delete(id);
+                        },
+                        onTimeout(): void {
+                            reject({
+                                type: HttpError.Timeout
+                            });
+                            requestCallbacks.delete(id);
                         }
-                        // send response data (for requestId) to network debugger
+                    });
+                    id = com.github.triniwiz.async.Async.Http.makeRequest(javaOptions, callback);
+                    requestCallbacks.set(id, callback);
+                };
 
-
-                        let contentType = headers['Content-Type'];
-                        if (contentType == null) {
-                            contentType = headers['content-type'];
-                        }
-                        let acceptHeader;
-
-                        if (contentType == null) {
-                            acceptHeader = headers['Accept'];
+                if (TNSHttpSettings.saveImage && isImageUrl(options.url)) {
+                    // handle saved images to disk
+                    if (!TNSHttpSettings.currentlySavedImages) {
+                        const stored = getString(SaveImageStorageKey);
+                        if (stored) {
+                            try {
+                                TNSHttpSettings.currentlySavedImages = JSON.parse(stored);
+                            } catch (err) {
+                                TNSHttpSettings.currentlySavedImages = {};
+                            }
                         } else {
-                            acceptHeader = contentType;
+                            TNSHttpSettings.currentlySavedImages = {};
                         }
+                    }
 
-                        let returnType = 'text/plain';
-                        if (!types.isNullOrUndefined(acceptHeader) && types.isString(acceptHeader)) {
-                            let acceptValues = acceptHeader.split(',');
-                            let quality = [];
-                            let defaultQuality = [];
-                            let customQuality = [];
-                            for (let value of acceptValues) {
-                                if (value.indexOf(';q=') > -1) {
-                                    customQuality.push(value);
-                                } else {
-                                    defaultQuality.push(value);
+
+                    const imageSetting = TNSHttpSettings.currentlySavedImages[options.url];
+                    const requests = imageSetting ? imageSetting.requests : 0;
+                    let localPath: string;
+                    if (imageSetting && imageSetting.localPath && File.exists(imageSetting.localPath)) {
+                        // previously saved to disk
+                        FileManager.readFile(imageSetting.localPath, null, (error, file) => {
+                            if (error) {
+                                if (TNSHttpSettings.debug) {
+                                    console.log('http image load error:', error);
                                 }
                             }
-                            customQuality = customQuality.sort((a, b) => {
-                                const a_quality = parseFloat(a.substring(a.indexOf(';q=')).replace(';q=', ''));
-                                const b_quality = parseFloat(b.substring(b.indexOf(';q=')).replace(';q=', ''));
-                                return (b_quality - a_quality);
+                            resolve({
+                                url: options.url,
+                                responseText: '',
+                                statusCode: 200,
+                                content: file,
+                                headers: {
+                                    'Content-Type': 'arraybuffer'
+                                }
                             });
-                            quality.push(...defaultQuality);
-                            quality.push(...customQuality);
-                            returnType = quality[0];
-                        }
-
-                        result['statusCode'] = statusCode;
-                        // send response data (for requestId) to network debugger
-                        // @ts-ignore
-                        if (global.__inspector && global.__inspector.isConnected) {
-                            NetworkAgent.responseReceived(counter, {
-                                url: result.url,
-                                statusCode,
-                                headers,
-                                responseAsString: isString ? result.content.toString() : null,
-                                responseAsImage: null // TODO needs base64 Image
-                            }, headers);
-                        }
-
-                        if (isTextContentType(returnType) && !responseText) {
-                            try {
-                                responseText = JSON.stringify(content);
-                            } catch (err) {
-                                this._reject({
-                                    type: HttpError.Error,
-                                    ios: null,
-                                    message: err
-                                });
-                                return;
-                            }
-                        }
-                        resolve({
-                            url: result.url,
-                            content,
-                            responseText,
-                            statusCode: statusCode,
-                            headers: headers
                         });
-                        requestCallbacks.delete(id);
-                    },
-                    onError(param0: string, param1: java.lang.Exception): void {
-                        reject({
-                            type: HttpError.Error,
-                            message: param0
-                        });
-                        requestCallbacks.delete(id);
-                    },
-                    onHeaders(jHeaders: any, status: number): void {
-                        statusCode = status;
-                        const length = jHeaders.size();
-                        let pair;
-                        for (let i = 0; i < length; i++) {
-                            pair = jHeaders.get(i);
-                            addHeader(headers, pair.key, pair.value);
+                    } else if (requests >= TNSHttpSettings.saveImage.numberOfRequests) {
+                        // setup to write to disk when response finishes
+                        let filename = fileNameFromPath(options.url);
+                        if (filename.indexOf('?')) {
+                            // strip any params if were any
+                            filename = filename.split('?')[0];
                         }
-                        if (options.onHeaders) {
-                            options.onHeaders(headers, statusCode);
-                        }
-                        requestCallbacks.delete(id);
-                    }, onLoading(): void {
-                        options.onLoading();
-                        requestCallbacks.delete(id);
-                    }, onProgress(lengthComputable: boolean, loaded: number, total: number): void {
-                        if (options.onProgress) {
-                            options.onProgress({
-                                lengthComputable,
-                                loaded,
-                                total
-                            })
-                        }
-                        requestCallbacks.delete(id);
-                    },
-                    onTimeout(): void {
-                        reject({
-                            type: HttpError.Timeout
-                        });
-                        requestCallbacks.delete(id);
+                        localPath = path.join(knownFolders.documents().path, filename);
+                        makeRemoteRequest();
                     }
-                });
-                id = com.github.triniwiz.async.Async.Http.makeRequest(javaOptions, callback);
-                requestCallbacks.set(id, callback);
+
+                    // save settings
+                    TNSHttpSettings.currentlySavedImages[options.url] = {
+                        ...(imageSetting || {}),
+                        date: Date.now(),
+                        requests: requests + 1,
+                        localPath
+                    };
+                    setString(SaveImageStorageKey, JSON.stringify(TNSHttpSettings.currentlySavedImages));
+
+                } else {
+                    makeRemoteRequest();
+                }
+
                 requestIdCounter++;
             } catch (ex) {
                 reject({

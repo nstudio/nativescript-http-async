@@ -1,13 +1,16 @@
 package com.github.triniwiz.async;
 
-import android.support.annotation.Nullable;
+import androidx.annotation.Nullable;
+
 import okhttp3.*;
 import okhttp3.internal.http2.ErrorCode;
 import okhttp3.internal.http2.StreamResetException;
 import okio.*;
+
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
+import org.json.JSONTokener;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -24,11 +27,32 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
+import android.os.Handler;
+import android.os.HandlerThread;
+
 /**
  * Created by triniwiz on 2019-06-19
  */
 
 public class Async {
+    private static Executor executor = Executors.newSingleThreadExecutor();
+    private static Handler handler;
+
+    static {
+        HandlerThread handlerThread = new HandlerThread("TNSAsyncHttp", android.os.Process.THREAD_PRIORITY_BACKGROUND);
+        handlerThread.start();
+        handler = new Handler(handlerThread.getLooper());
+    }
+
+    public static void runInBackground(final Runnable runnable) {
+        executor.execute(new Runnable() {
+            @Override
+            public void run() {
+                Thread thread = new Thread(runnable);
+                thread.start();
+            }
+        });
+    }
 
     static final class ByteArrayOutputStream2 extends ByteArrayOutputStream {
         public ByteArrayOutputStream2() {
@@ -60,6 +84,7 @@ public class Async {
             public Object content;
             public String url;
             public ArrayList<KeyValuePair> headers;
+            public String contentText;
 
             Result() {
             }
@@ -397,27 +422,32 @@ public class Async {
                             stream = new ByteArrayOutputStream2();
                             Sink sink = Okio.sink(stream);
                             Result result = new Result();
+                            result.contentText = "";
                             result.url = response.request().url().toString();
                             result.headers = new ArrayList<>();
-                            result.headers.add(new KeyValuePair("Content-Type", returnType));
                             try {
                                 source.readAll(sink);
                                 if (isTextType(returnType)) {
+                                    result.headers.add(new KeyValuePair("Content-Type", returnType));
                                     result.content = stream.toString();
+                                    result.contentText = (String) result.content;
                                     callback.onComplete(result);
                                 } else if (returnType.equals("application/json")) {
                                     String returnValue = stream.toString();
-                                    try {
-                                        result.content = new JSONObject(returnValue);
-                                    } catch (JSONException e) {
-                                        if (e.getMessage().contains("org.json.JSONArray cannot be converted to JSONObject")) {
-                                            result.content = new JSONArray(returnValue);
-                                        } else {
-                                            throw e;
-                                        }
+                                    JSONTokener tokener = new JSONTokener(returnValue);
+                                    Object value = tokener.nextValue();
+                                    if (value instanceof JSONObject || value instanceof JSONArray) {
+                                        result.headers.add(new KeyValuePair("Content-Type", returnType));
+                                        result.content = value;
+                                        result.contentText = returnValue;
+                                    } else {
+                                        result.headers.add(new KeyValuePair("Content-Type", "text/plain"));
+                                        result.content = returnValue;
+                                        result.contentText = returnValue;
                                     }
                                     callback.onComplete(result);
                                 } else {
+                                    result.headers.add(new KeyValuePair("Content-Type", "application/octet-stream"));
                                     result.content = ByteBuffer.wrap(stream.buf());
                                     callback.onComplete(result);
                                 }
@@ -428,20 +458,24 @@ public class Async {
                                         callback.onCancel(result);
                                     } else if (returnType.equals("application/json")) {
                                         String returnValue = stream.toString();
+                                        JSONTokener tokener = new JSONTokener(returnValue);
                                         try {
-                                            result.content = new JSONObject(returnValue);
-                                        } catch (JSONException e1) {
-                                            if (e1.getMessage().contains("org.json.JSONArray cannot be converted to JSONObject")) {
-                                                try {
-                                                    result.content = new JSONArray(returnValue);
-                                                } catch (JSONException e2) {
-                                                    callback.onError(e2.getMessage(), e2);
-                                                }
+                                            Object value = tokener.nextValue();
+                                            if (value instanceof JSONObject || value instanceof JSONArray) {
+                                                result.headers.add(new KeyValuePair("Content-Type", returnType));
+                                                result.content = value;
+                                                result.contentText = returnValue;
                                             } else {
-                                                callback.onError(e1.getMessage(), e1);
+                                                result.headers.add(new KeyValuePair("Content-Type", "text/plain"));
+                                                result.content = returnValue;
+                                                result.contentText = returnValue;
                                             }
+                                            callback.onCancel(result);
+                                        } catch (JSONException e1) {
+                                            callback.onError(e1.getMessage(), e1);
                                         }
                                     } else {
+                                        result.headers.add(new KeyValuePair("Content-Type", "application/octet-stream"));
                                         result.content = ByteBuffer.wrap(stream.buf());
                                         callback.onCancel(result);
                                     }
