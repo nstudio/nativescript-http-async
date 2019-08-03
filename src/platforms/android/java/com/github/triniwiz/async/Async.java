@@ -1,12 +1,12 @@
 package com.github.triniwiz.async;
 
+import android.os.Handler;
+import android.os.HandlerThread;
 import androidx.annotation.Nullable;
-
 import okhttp3.*;
 import okhttp3.internal.http2.ErrorCode;
 import okhttp3.internal.http2.StreamResetException;
 import okio.*;
-
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -26,9 +26,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-
-import android.os.Handler;
-import android.os.HandlerThread;
 
 /**
  * Created by triniwiz on 2019-06-19
@@ -335,7 +332,8 @@ public class Async {
                         }
                     }
                     RequestBody body = null;
-                    if (options.method.equals("POST") || options.method.equals("PUT")) {
+                    boolean isPostOrPut = options.method.equals("POST") || options.method.equals("PUT");
+                    if (isPostOrPut) {
                         if (options.content instanceof File) {
 
                         } else if (options.content instanceof String) {
@@ -352,8 +350,11 @@ public class Async {
                                     callback.onProgress(total > -1, loaded, total);
                                 }
                             });
+                        }else {
+                            body = RequestBody.create(null,"");
                         }
                     }
+
                     request.method(options.method, body);
                     OkHttpClient client = builder.build();
                     Call call = client.newCall(request.build());
