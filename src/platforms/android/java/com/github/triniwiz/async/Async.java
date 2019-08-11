@@ -332,8 +332,8 @@ public class Async {
                         }
                     }
                     RequestBody body = null;
-                    boolean isPostOrPut = options.method.equals("POST") || options.method.equals("PUT");
-                    if (isPostOrPut) {
+                    boolean isPostPutOrPatch = options.method.equals("POST") || options.method.equals("PUT") || options.method.equals("PATCH");
+                    if (isPostPutOrPatch) {
                         if (options.content instanceof File) {
 
                         } else if (options.content instanceof String) {
