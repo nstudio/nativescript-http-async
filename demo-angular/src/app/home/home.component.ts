@@ -29,6 +29,10 @@ export class HomeComponent implements OnInit {
         this.dataService.makeRequest();
     }
 
+    makeSaveImageRequest() {
+      this.dataService.makeSaveImageRequest();
+    }
+
     makeXhr() {
         this.dataService.makeXhr();
     }

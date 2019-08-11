@@ -11,7 +11,8 @@
 	<Button (tap)="getRandomUsers(userCount.text, userResults.text)" text="Get RandomUsers"></Button>
 	<Button (tap)="makeRequest()" text="Make Request"></Button>
 	<Button (tap)="makeXhr()" text="Make Xhr Request"></Button>
-	<Button (tap)="base64Xhr()" text="Upload Image Request"></Button>
+  <Button (tap)="base64Xhr()" text="Upload Image Request"></Button>
+  <Button (tap)="makeSaveImageRequest()" text="Make Save Image Request"></Button>
 	<Button (tap)="showNext()" text="showNext"></Button>
 	<Button (tap)="showPrevious()" text="showPrevious"></Button>
 	<Image [visibility]="dataService?.currentLoadedImage ? 'visible':'collapse'" height="200"

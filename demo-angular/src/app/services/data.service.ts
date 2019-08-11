@@ -178,6 +178,12 @@ export class DataService {
         });
     }
 
+    makeSaveImageRequest() {
+      this.httpClient.get(`https://previews.123rf.com/images/chutimakuanamon/chutimakuanamon1705/chutimakuanamon170500260/79121847-homer-simpson-thinking-illustration.jpg`).subscribe(res => {
+        console.log('made save image request:', res);
+      });
+    }
+
     loadImage(index: number) {
         this.currentLoadedImage = this.imagesData[index];
     }

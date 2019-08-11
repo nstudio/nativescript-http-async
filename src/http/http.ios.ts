@@ -261,7 +261,10 @@ class NSURLSessionTaskDelegateImpl extends NSObject
             }
 
             let returnType = 'text/plain';
-            if (!types.isNullOrUndefined(acceptHeader) && types.isString(acceptHeader)) {
+
+            if (this._response.MIMEType && this._response.MIMEType.indexOf('image') > -1) {
+              returnType = 'image';
+            } else if (!types.isNullOrUndefined(acceptHeader) && types.isString(acceptHeader)) {
                 let acceptValues = acceptHeader.split(',');
                 let quality = [];
                 let defaultQuality = [];
@@ -302,18 +305,22 @@ class NSURLSessionTaskDelegateImpl extends NSObject
                     });
                     return;
                 }
-            } else {
+            } else if (returnType === 'image') {
                 content = this._data;
-            }
-            if (TNSHttpSettings.saveImage && TNSHttpSettings.currentlySavedImages && TNSHttpSettings.currentlySavedImages[this._url]) {
-              // ensure saved to disk
-              if (TNSHttpSettings.currentlySavedImages[this._url].localPath) {
-                FileManager.writeFile(content, TNSHttpSettings.currentlySavedImages[this._url].localPath, function(error, result) {
-                  if (TNSHttpSettings.debug) {
-                    console.log('http image save:', error ? error : result);
+
+                // check saveImage options
+                if (TNSHttpSettings.saveImage && TNSHttpSettings.currentlySavedImages && TNSHttpSettings.currentlySavedImages[this._url]) {
+                  // ensure saved to disk
+                  if (TNSHttpSettings.currentlySavedImages[this._url].localPath) {
+                    FileManager.writeFile(content, TNSHttpSettings.currentlySavedImages[this._url].localPath, function(error, result) {
+                      if (TNSHttpSettings.debug) {
+                        console.log('http image save:', error ? error : result);
+                      }
+                    });
                   }
-                });
-              }
+                }
+            } else {
+              content = this._data;
             }
 
             if (this._debuggerRequest) {
@@ -487,11 +494,15 @@ export class Http {
                     }
                   }
 
+                  const today = Date.now();
                   const imageSetting = TNSHttpSettings.currentlySavedImages[options.url];
                   const requests = imageSetting ? imageSetting.requests : 0;
                   let localPath: string;
                   if (imageSetting && imageSetting.localPath && File.exists(imageSetting.localPath)) {
                     // previously saved to disk
+                    if (TNSHttpSettings.debug) {
+                      console.log('using locally stored image from:', imageSetting.localPath);
+                    }
                     resolve({
                       url: options.url,
                       responseText: '',
@@ -509,18 +520,18 @@ export class Http {
                   } else if (requests >= TNSHttpSettings.saveImage.numberOfRequests) {
                     // setup to write to disk when response finishes
                     let filename = fileNameFromPath(options.url);
-                    if (filename.indexOf('?')) {
+                    if (filename.indexOf('?') > -1) {
                       // strip any params if were any
                       filename = filename.split('?')[0];
                     }
-                    localPath = path.join(knownFolders.documents().path, filename);
+                    localPath = path.join(knownFolders.documents().path, 'images', `${today}_${filename}`);
                     makeRemoteRequest();
                   }
 
                   // save settings
                   TNSHttpSettings.currentlySavedImages[options.url] = {
                     ...(imageSetting || {}),
-                    date: Date.now(),
+                    date: today,
                     requests: requests + 1,
                     localPath
                   };
