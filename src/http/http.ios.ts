@@ -103,13 +103,17 @@ class NSURLSessionTaskDelegateImpl extends NSObject
     ) {
         // const method = this._request.HTTPMethod.toLowerCase();
         if (data) {
+          if (this._data) {
             this._data.appendData(data);
+          }
 
             const lastProgress: any = this._lastProgress || {
                 lengthComputable: false,
                 total: 0
             };
-            lastProgress.loaded = this._data.length;
+            if (this._data) {
+              lastProgress.loaded = this._data.length;
+            }
             if (this._onLoading && !this._loadingSent) {
                 this._onLoading(lastProgress);
                 this._loadingSent = true;
@@ -285,10 +289,10 @@ class NSURLSessionTaskDelegateImpl extends NSObject
 
             let content;
             let responseText;
-            if (isTextContentType(returnType)) {
+            if (this._data && isTextContentType(returnType)) {
                 responseText = NSDataToString(this._data);
                 content = responseText;
-            } else if (types.isString(returnType) && returnType.indexOf('application/json') > -1) {
+            } else if (this._data && types.isString(returnType) && returnType.indexOf('application/json') > -1) {
                 // @ts-ignore
                 try {
                     responseText = NSDataToString(this._data);
@@ -375,6 +379,8 @@ export function addHeader(headers: Headers, key: string, value: string): void {
 
 export class Http {
     static _tasks: Map<string, NSURLSessionDataTask> = new Map();
+    private _session: NSURLSession;
+    private _sessionDelegate: NSURLSessionTaskDelegateImpl;
 
     constructor() {
     }
@@ -437,21 +443,22 @@ export class Http {
                     urlRequest.timeoutInterval = options.timeout / 1000;
                 }
 
-                let session = NSURLSession.sessionWithConfigurationDelegateDelegateQueue(
+                this._sessionDelegate = NSURLSessionTaskDelegateImpl.initWithDebuggerRequestResolveRejectCallbackHeadersLoadingListener(
+                    debugRequest,
+                    urlRequest,
+                    resolve,
+                    reject,
+                    options.onProgress,
+                    options.onHeaders,
+                    options.onLoading
+                );
+                this._session = NSURLSession.sessionWithConfigurationDelegateDelegateQueue(
                     sessionConfig,
-                    NSURLSessionTaskDelegateImpl.initWithDebuggerRequestResolveRejectCallbackHeadersLoadingListener(
-                        debugRequest,
-                        urlRequest,
-                        resolve,
-                        reject,
-                        options.onProgress,
-                        options.onHeaders,
-                        options.onLoading
-                    ),
+                    this._sessionDelegate,
                     null
                 );
 
-                const task = session.dataTaskWithRequest(urlRequest);
+                const task = this._session.dataTaskWithRequest(urlRequest);
                 Http._tasks.set(id, task);
                 if (options.url && debugRequest) {
                     const request = {
