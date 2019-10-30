@@ -155,28 +155,30 @@ const NSURLSessionTaskDelegateImpl = (NSObject as any).extend(
       error: NSError
     ) {
       if (error) {
-        switch (error.code) {
-          case NSURLErrorTimedOut:
-            this._reject({
-              type: HttpError.Timeout,
-              ios: error,
-              message: error.localizedDescription
-            });
-            break;
-          case NSURLErrorCancelled:
-            this._reject({
-              type: HttpError.Cancelled,
-              ios: error,
-              message: error.localizedDescription
-            });
-            break;
-          default:
-            this._reject({
-              type: HttpError.Error,
-              ios: error,
-              message: error.localizedDescription
-            });
-            break;
+        if (this._reject) {
+          switch (error.code) {
+            case NSURLErrorTimedOut:
+              this._reject({
+                type: HttpError.Timeout,
+                ios: error,
+                message: error.localizedDescription
+              });
+              break;
+            case NSURLErrorCancelled:
+              this._reject({
+                type: HttpError.Cancelled,
+                ios: error,
+                message: error.localizedDescription
+              });
+              break;
+            default:
+              this._reject({
+                type: HttpError.Error,
+                ios: error,
+                message: error.localizedDescription
+              });
+              break;
+          }
         }
       } else {
         const textTypes: string[] = [
@@ -191,6 +193,7 @@ const NSURLSessionTaskDelegateImpl = (NSObject as any).extend(
           let result = false;
           for (let i = 0; i < textTypes.length; i++) {
             if (
+              contentType &&
               types.isString(contentType) &&
               contentType.toLowerCase().indexOf(textTypes[i]) >= 0
             ) {
@@ -202,7 +205,7 @@ const NSURLSessionTaskDelegateImpl = (NSObject as any).extend(
         };
 
         const headers = {};
-        const response = task.response as NSHTTPURLResponse;
+        const response = task ? task.response as NSHTTPURLResponse : null;
 
         if (response && response.allHeaderFields) {
           const headerFields = response.allHeaderFields;
@@ -212,121 +215,123 @@ const NSURLSessionTaskDelegateImpl = (NSObject as any).extend(
           });
         }
         const request = this._request as NSURLRequest;
-        let contentType = request.allHTTPHeaderFields.objectForKey(
-          "Content-Type"
-        );
-        if (!contentType) {
-          contentType = request.allHTTPHeaderFields.objectForKey(
-            "content-type"
+        if (request) {
+          let contentType = request.allHTTPHeaderFields.objectForKey(
+            "Content-Type"
           );
-        }
-        let acceptHeader;
-
-        if (!contentType) {
-          acceptHeader = request.allHTTPHeaderFields.objectForKey("Accept");
-        } else {
-          acceptHeader = contentType;
-        }
-
-        let returnType = "text/plain";
-        if (
-          !types.isNullOrUndefined(acceptHeader) &&
-          types.isString(acceptHeader)
-        ) {
-          let acceptValues = acceptHeader.split(",");
-          let quality = [];
-          let defaultQuality = [];
-          let customQuality = [];
-          for (let value of acceptValues) {
-            if (value.indexOf(";q=") > -1) {
-              customQuality.push(value);
-            } else {
-              defaultQuality.push(value);
+          if (!contentType) {
+            contentType = request.allHTTPHeaderFields.objectForKey(
+              "content-type"
+            );
+          }
+          let acceptHeader;
+  
+          if (!contentType) {
+            acceptHeader = request.allHTTPHeaderFields.objectForKey("Accept");
+          } else {
+            acceptHeader = contentType;
+          }
+  
+          let returnType = "text/plain";
+          if (
+            !types.isNullOrUndefined(acceptHeader) &&
+            types.isString(acceptHeader)
+          ) {
+            let acceptValues = acceptHeader.split(",");
+            let quality = [];
+            let defaultQuality = [];
+            let customQuality = [];
+            for (let value of acceptValues) {
+              if (value.indexOf(";q=") > -1) {
+                customQuality.push(value);
+              } else {
+                defaultQuality.push(value);
+              }
+            }
+            customQuality = customQuality.sort((a, b) => {
+              const a_quality = parseFloat(
+                a.substring(a.indexOf(";q=")).replace(";q=", "")
+              );
+              const b_quality = parseFloat(
+                b.substring(b.indexOf(";q=")).replace(";q=", "")
+              );
+              return b_quality - a_quality;
+            });
+            quality.push(...defaultQuality);
+            quality.push(...customQuality);
+            returnType = quality[0];
+          }
+  
+          let content;
+          let responseText;
+          if (this._data && isTextContentType(returnType)) {
+            responseText = NSDataToString(this._data);
+            content = responseText;
+          } else if (
+            this._data &&
+            types.isString(returnType) &&
+            returnType.indexOf("application/json") > -1
+          ) {
+            // @ts-ignore
+            try {
+              responseText = NSDataToString(this._data);
+              content = JSON.parse(responseText);
+              // content = deserialize(NSJSONSerialization.JSONObjectWithDataOptionsError(this._data, NSJSONReadingOptions.AllowFragments, null));
+            } catch (err) {
+              this._reject({
+                type: HttpError.Error,
+                ios: null,
+                message: err
+              });
+              return;
+            }
+          } else {
+            content = this._data;
+          }
+          if (
+            TNSHttpSettings.saveImage &&
+            TNSHttpSettings.currentlySavedImages &&
+            TNSHttpSettings.currentlySavedImages[this._url]
+          ) {
+            // ensure saved to disk
+            if (TNSHttpSettings.currentlySavedImages[this._url].localPath) {
+              FileManager.writeFile(
+                content,
+                TNSHttpSettings.currentlySavedImages[this._url].localPath,
+                function(error, result) {
+                  if (TNSHttpSettings.debug) {
+                    console.log("http image save:", error ? error : result);
+                  }
+                }
+              );
             }
           }
-          customQuality = customQuality.sort((a, b) => {
-            const a_quality = parseFloat(
-              a.substring(a.indexOf(";q=")).replace(";q=", "")
-            );
-            const b_quality = parseFloat(
-              b.substring(b.indexOf(";q=")).replace(";q=", "")
-            );
-            return b_quality - a_quality;
-          });
-          quality.push(...defaultQuality);
-          quality.push(...customQuality);
-          returnType = quality[0];
-        }
-
-        let content;
-        let responseText;
-        if (this._data && isTextContentType(returnType)) {
-          responseText = NSDataToString(this._data);
-          content = responseText;
-        } else if (
-          this._data &&
-          types.isString(returnType) &&
-          returnType.indexOf("application/json") > -1
-        ) {
-          // @ts-ignore
-          try {
-            responseText = NSDataToString(this._data);
-            content = JSON.parse(responseText);
-            // content = deserialize(NSJSONSerialization.JSONObjectWithDataOptionsError(this._data, NSJSONReadingOptions.AllowFragments, null));
-          } catch (err) {
-            this._reject({
-              type: HttpError.Error,
-              ios: null,
-              message: err
-            });
-            return;
+  
+          if (this._debuggerRequest) {
+            this._debuggerRequest.mimeType = this._response.MIMEType;
+            this._debuggerRequest.data = this._data;
+            const debugResponse = {
+              url: this._url,
+              status: this._statusCode,
+              statusText: NSHTTPURLResponse.localizedStringForStatusCode(
+                this._statusCode
+              ),
+              headers: headers,
+              mimeType: this._response.MIMEType,
+              fromDiskCache: false
+            };
+            this._debuggerRequest.responseReceived(debugResponse);
+            this._debuggerRequest.loadingFinished();
           }
-        } else {
-          content = this._data;
-        }
-        if (
-          TNSHttpSettings.saveImage &&
-          TNSHttpSettings.currentlySavedImages &&
-          TNSHttpSettings.currentlySavedImages[this._url]
-        ) {
-          // ensure saved to disk
-          if (TNSHttpSettings.currentlySavedImages[this._url].localPath) {
-            FileManager.writeFile(
-              content,
-              TNSHttpSettings.currentlySavedImages[this._url].localPath,
-              function(error, result) {
-                if (TNSHttpSettings.debug) {
-                  console.log("http image save:", error ? error : result);
-                }
-              }
-            );
-          }
-        }
-
-        if (this._debuggerRequest) {
-          this._debuggerRequest.mimeType = this._response.MIMEType;
-          this._debuggerRequest.data = this._data;
-          const debugResponse = {
+  
+          this._resolve({
             url: this._url,
-            status: this._statusCode,
-            statusText: NSHTTPURLResponse.localizedStringForStatusCode(
-              this._statusCode
-            ),
-            headers: headers,
-            mimeType: this._response.MIMEType,
-            fromDiskCache: false
-          };
-          this._debuggerRequest.responseReceived(debugResponse);
-          this._debuggerRequest.loadingFinished();
+            content,
+            responseText,
+            statusCode: this._statusCode,
+            headers: headers
+          });
         }
-
-        this._resolve({
-          url: this._url,
-          content,
-          responseText,
-          statusCode: this._statusCode,
-          headers: headers
-        });
       }
     }
   },
