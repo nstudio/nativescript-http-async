@@ -740,8 +740,7 @@ export class Http {
           }
 
           if (
-            types.isString(options.content) ||
-            options.content instanceof FormData
+            types.isString(options.content)
           ) {
             urlRequest.HTTPBody = NSString.stringWithString(
               options.content.toString()

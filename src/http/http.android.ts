@@ -121,8 +121,6 @@ export class Http {
                 types.isString(options.content)
             ) {
                 javaOptions.content = new java.lang.String(options.content);
-            } else if (options.content instanceof FormData) {
-                javaOptions.content = new java.lang.String(options.content.toString());
             } else if (types.isObject(options.content)) {
                 javaOptions.content = serialize(options.content);
             }
