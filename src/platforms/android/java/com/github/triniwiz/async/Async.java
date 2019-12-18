@@ -70,6 +70,7 @@ public class Async {
 
     public static class Http {
         private static ConcurrentHashMap<String, CallOptions> callMap = new ConcurrentHashMap<>();
+        private static ConcurrentHashMap<String, DownloadCallOptions> downloadCallMap = new ConcurrentHashMap<>();
         private static ArrayList<String> cancelList = new ArrayList<>();
         private static Executor executor = Executors.newSingleThreadExecutor();
 
@@ -84,6 +85,14 @@ public class Async {
             public String contentText;
 
             Result() {
+            }
+        }
+
+        public static class FileResult {
+            public String filePath;
+            public String url;
+            public ArrayList<KeyValuePair> headers;
+            FileResult() {
             }
         }
 
@@ -147,10 +156,17 @@ public class Async {
             ResponseBody body;
             ProgressListener listener;
             BufferedSource bufferedSource;
+            Headers headers;
 
             ProgressResponseBody(ResponseBody body, ProgressListener listener) {
                 this.body = body;
                 this.listener = listener;
+            }
+
+            ProgressResponseBody(ResponseBody body, Headers headers, ProgressListener listener) {
+                this.body = body;
+                this.listener = listener;
+                this.headers = headers;
             }
 
             @Nullable
@@ -350,8 +366,8 @@ public class Async {
                                     callback.onProgress(total > -1, loaded, total);
                                 }
                             });
-                        }else {
-                            body = RequestBody.create(null,"");
+                        } else {
+                            body = RequestBody.create(null, "");
                         }
                     }
 
@@ -376,6 +392,8 @@ public class Async {
                                 }
                             } else if (e instanceof SocketTimeoutException) {
                                 callback.onTimeout();
+                            } else {
+                                callback.onError(e.getMessage(), e);
                             }
                             callMap.remove(id);
                         }
@@ -506,15 +524,132 @@ public class Async {
             return id;
         }
 
+        public static String getFileRequest(final DownloadRequestOptions options, final Http.Callback callback) {
+            UUID uuid = UUID.randomUUID();
+            final String id = uuid.toString();
+            executor.execute(new Runnable() {
+                @Override
+                public void run() {
+                    OkHttpClient.Builder builder = new OkHttpClient.Builder();
+                    builder.eventListener(new HttpEventListener());
+                    builder.followRedirects(!options.dontFollowRedirects);
+                    if (options.timeout > -1) {
+                        builder.connectTimeout(options.timeout, TimeUnit.MILLISECONDS);
+                        builder.readTimeout(options.timeout, TimeUnit.MILLISECONDS);
+                        builder.writeTimeout(options.timeout, TimeUnit.MILLISECONDS);
+                    }
+                    if (options.username != null && options.password != null) {
+                        builder.authenticator(new Authenticator() {
+                            @Nullable
+                            @Override
+                            public Request authenticate(Route route, Response response) throws IOException {
+                                if (response.request().header("Authorization") != null) {
+                                    return null;
+                                }
+                                return response.request().newBuilder()
+                                        .header("Authorization", Credentials.basic(options.username, options.password))
+                                        .build();
+                            }
+                        });
+                    }
+                    Request.Builder request = new Request.Builder();
+                    request.url(options.url);
+                    OkHttpClient client = builder.build();
+                    Call call = client.newCall(request.build());
+                    call.enqueue(new okhttp3.Callback() {
+                        @Override
+                        public void onFailure(Call call, IOException e) {
+                            if (call.isCanceled()) {
+                                FileResult result = new FileResult();
+                                callback.onCancel(result);
+                            } else if (e instanceof SocketTimeoutException) {
+                                callback.onTimeout();
+                            } else {
+                                callback.onError(e.getMessage(), e);
+                            }
+                            downloadCallMap.remove(id);
+                        }
+
+                        @Override
+                        public void onResponse(Call call, Response response) throws IOException {
+                            ProgressResponseBody responseBody = new ProgressResponseBody(response.body(), response.headers(), new ProgressListener() {
+                                @Override
+                                public void onProgress(long loaded, long total) {
+                                    callback.onProgress(total > -1, loaded, total);
+                                }
+                            });
+
+                            BufferedSource bufferedSource = responseBody.source();
+                            File file = new File(options.filePath);
+                            BufferedSink sink = null;
+                            try {
+                                sink = Okio.buffer(Okio.sink(file));
+                                sink.writeAll(Okio.source(bufferedSource.inputStream()));
+                                FileResult result = new FileResult();
+                                result.url = response.request().url().toString();
+                                result.headers = new ArrayList<>();
+                                result.filePath = file.getAbsolutePath();
+                                callback.onComplete(result);
+                            } catch (StreamResetException e) {
+                                if (e.errorCode == ErrorCode.CANCEL) {
+                                    FileResult result = new FileResult();
+                                    callback.onCancel(result);
+                                } else {
+                                    callback.onError(e.getMessage(), e);
+                                }
+
+                            } catch (SocketTimeoutException e) {
+                                callback.onTimeout();
+                            } catch (Exception e) {
+                                callback.onError(e.getMessage(), e);
+                            } finally {
+                                if (sink != null) {
+                                    try {
+                                        sink.close();
+                                    } catch (IOException e) {
+                                    }
+                                }
+                                if (bufferedSource != null) {
+                                    try {
+                                        bufferedSource.close();
+                                    } catch (IOException e) {
+                                    }
+                                }
+                            }
+
+                            downloadCallMap.remove(id);
+                        }
+                    });
+                    downloadCallMap.put(id, new DownloadCallOptions(call, options, callback));
+                    for (String cancelId : cancelList) {
+                        if (id.equals(cancelId)) {
+                            call.cancel();
+                            downloadCallMap.remove(cancelId);
+                            cancelList.remove(cancelId);
+                        }
+                    }
+                }
+            });
+            return id;
+        }
+
         public static void cancelRequest(final String id) {
             if (id != null) {
                 executor.execute(new Runnable() {
                     @Override
                     public void run() {
                         CallOptions pair = callMap.get(id);
+                        DownloadCallOptions downloadPair = downloadCallMap.get(id);
+
                         if (pair != null) {
                             pair.call.cancel();
-                        } else {
+                        }
+
+                        if(downloadPair != null){
+                            downloadPair.call.cancel();
+                        }
+
+                        if(pair == null && downloadPair == null){
                             cancelList.add(id);
                         }
                     }
@@ -528,6 +663,18 @@ public class Async {
             public RequestOptions options;
 
             CallOptions(Call call, RequestOptions options, Callback callback) {
+                this.call = call;
+                this.options = options;
+                this.callback = callback;
+            }
+        }
+
+        static class DownloadCallOptions {
+            public Call call;
+            public Callback callback;
+            public DownloadRequestOptions options;
+
+            DownloadCallOptions(Call call, DownloadRequestOptions options, Callback callback) {
                 this.call = call;
                 this.options = options;
                 this.callback = callback;
@@ -549,6 +696,16 @@ public class Async {
             public String method;
             public ArrayList<KeyValuePair> headers;
             public Object content;
+            public int timeout = -1;
+            public boolean dontFollowRedirects = false;
+            public String username;
+            public String password;
+        }
+
+        public static class DownloadRequestOptions {
+            public String url;
+            public String filePath;
+            public ArrayList<KeyValuePair> headers;
             public int timeout = -1;
             public boolean dontFollowRedirects = false;
             public String username;

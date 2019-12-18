@@ -84,6 +84,16 @@ export interface HttpRequestOptions {
     onLoading?: () => void;
 }
 
+export interface HttpDownloadRequestOptions {
+    url: string;
+    headers?: Headers;
+    filePath?: any;
+    timeout?: number;
+    onProgress?: (event: any) => void;
+    onHeaders?: (...args) => void;
+    onLoading?: () => void;
+}
+
 export enum HttpResponseEncoding {
     UTF8,
     GBK
@@ -92,6 +102,13 @@ export enum HttpResponseEncoding {
 export interface HttpResponse {
     statusCode: number;
     content: any;
+    headers: Headers;
+    url: string;
+}
+
+export interface HttpDownloadResponse {
+    statusCode: number;
+    filePath: string;
     headers: Headers;
     url: string;
 }
