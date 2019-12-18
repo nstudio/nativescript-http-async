@@ -14,6 +14,7 @@
 	<Button (tap)="base64Xhr()" text="Upload Image Request"></Button>
 	<Button (tap)="showNext()" text="showNext"></Button>
 	<Button (tap)="showPrevious()" text="showPrevious"></Button>
+	<Button (tap)="downloadLargeFile()" text="Download Large File"></Button>
 	<Image [visibility]="dataService?.currentLoadedImage ? 'visible':'collapse'" height="200"
 		   [src]="dataService?.currentLoadedImage"></Image>
 	<ListView [items]="dataService.randomUsers" class="list-group" row="2" height="100%">
