@@ -92,6 +92,7 @@ public class Async {
             public String filePath;
             public String url;
             public ArrayList<KeyValuePair> headers;
+
             FileResult() {
             }
         }
@@ -584,11 +585,12 @@ public class Async {
                             BufferedSink sink = null;
                             try {
                                 sink = Okio.buffer(Okio.sink(file));
-                                sink.writeAll(Okio.source(bufferedSource.inputStream()));
+                                sink.writeAll(bufferedSource);
                                 FileResult result = new FileResult();
                                 result.url = response.request().url().toString();
                                 result.headers = new ArrayList<>();
                                 result.filePath = file.getAbsolutePath();
+                                sink.close();
                                 callback.onComplete(result);
                             } catch (StreamResetException e) {
                                 if (e.errorCode == ErrorCode.CANCEL) {
@@ -615,9 +617,9 @@ public class Async {
                                     } catch (IOException e) {
                                     }
                                 }
+                                responseBody.close();
+                                downloadCallMap.remove(id);
                             }
-
-                            downloadCallMap.remove(id);
                         }
                     });
                     downloadCallMap.put(id, new DownloadCallOptions(call, options, callback));
@@ -645,11 +647,11 @@ public class Async {
                             pair.call.cancel();
                         }
 
-                        if(downloadPair != null){
+                        if (downloadPair != null) {
                             downloadPair.call.cancel();
                         }
 
-                        if(pair == null && downloadPair == null){
+                        if (pair == null && downloadPair == null) {
                             cancelList.add(id);
                         }
                     }
