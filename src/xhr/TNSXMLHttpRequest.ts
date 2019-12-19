@@ -431,7 +431,7 @@ export class TNSXMLHttpRequest {
                     } catch (err) {
                       // this should probably be caught before the promise resolves
                     }
-                } else if (typeof res.content === 'object') {
+                } else if (typeof res.content === 'object' && !(res.content instanceof NSDictionary)) {
                     this._response = res.content;
                     this._responseText = res.responseText;
                 } else {
@@ -449,6 +449,9 @@ export class TNSXMLHttpRequest {
 
                             this._responseText = encodedString.toString();
                             this._response = JSON.parse(this._responseText);
+                        }else if(res.content instanceof NSDictionary){
+                            this._response = deserialize(res.content);
+                            this._responseText = JSON.stringify(this._response);
                         }
                     } else {
                         if (res.content instanceof java.nio.ByteBuffer) {
@@ -463,7 +466,7 @@ export class TNSXMLHttpRequest {
             ) {
                 if (typeof res.content === 'string') {
                     this._responseText = res.content;
-                } else if (typeof res.content === 'object') {
+                } else if (typeof res.content === 'object' && !(res.content instanceof NSDictionary)) {
                     this._responseText = JSON.stringify(res.content); // Stringify or build manually 🧐
                 } else {
                     if (isIOS) {
@@ -479,6 +482,8 @@ export class TNSXMLHttpRequest {
                             }
 
                             this._responseText = this._response = encodedString.toString()
+                        }else if(res.content instanceof NSDictionary){
+                            this._responseText = JSON.stringify(deserialize(res.content));
                         }
 
                     } else {
@@ -668,4 +673,40 @@ export class TNSXMLHttpRequest {
             this.onreadystatechange();
         }
     }
+}
+
+function deserialize(nativeData) {
+    if(isIOS){
+        if (types.isNullOrUndefined(nativeData)) {
+            // some native values will already be js null values
+            // calling types.getClass below on null/undefined will cause crash
+            return null;
+        } else {
+            switch (types.getClass(nativeData)) {
+                case 'NSNull':
+                    return null;
+                case 'NSMutableDictionary':
+                case 'NSDictionary':
+                    let obj = {};
+                    const length = nativeData.count;
+                    const keysArray = nativeData.allKeys as NSArray<any>;
+                    for (let i = 0; i < length; i++) {
+                        const nativeKey = keysArray.objectAtIndex(i);
+                        obj[nativeKey] = deserialize(nativeData.objectForKey(nativeKey));
+                    }
+                    return obj;
+                case 'NSMutableArray':
+                case 'NSArray':
+                    let array = [];
+                    const len = nativeData.count;
+                    for (let i = 0; i < len; i++) {
+                        array[i] = deserialize(nativeData.objectAtIndex(i));
+                    }
+                    return array;
+                default:
+                    return nativeData;
+            }
+        }
+    }
+    return null;
 }

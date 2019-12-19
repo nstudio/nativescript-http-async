@@ -59,7 +59,7 @@ export class DataService {
         from(requests)
             .pipe(
                 mergeMap(url => {
-                    return this.httpClient.get(url, {responseType: 'json'}).pipe(
+                    return this.httpClient.get(url, {responseType: 'json', reportProgress: true}).pipe(
                         map(value => {
                             if (Array.isArray(value)) {
                                 return value[0]['results'];
@@ -312,7 +312,7 @@ export class DataService {
 
         xhr.onreadystatechange = () => {
             if (xhr.readyState === 4 && xhr.status === 200) {
-                this.randomUsers.push(xhr.response);
+                this.randomUsers.push(...xhr.response.results);
             }
         };
         xhr.onerror = function () {

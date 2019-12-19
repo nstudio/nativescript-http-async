@@ -360,6 +360,105 @@ NSURLSessionTaskDelegateImpl.initWithDebuggerRequestResolveRejectCallbackHeaders
     delegate._debuggerRequest = debuggerRequest;
     return delegate;
 };
+/*
+const NSURLSessionDownloadDelegateImpl = (NSObject as any).extend({
+    _lastProgress: {
+        lengthComputable: false,
+        loaded: 0,
+        total: 0
+    },
+
+    URLSessionTaskWillPerformHTTPRedirectionNewRequestCompletionHandler: function (
+        session: NSURLSession,
+        task: NSURLSessionTask,
+        response: NSHTTPURLResponse,
+        request: NSURLRequest,
+        completionHandler: (p1: NSURLRequest) => void
+    ) {
+        completionHandler(request);
+        this._url = response.URL.absoluteString;
+    },
+    URLSessionDownloadTaskDidFinishDownloadingToURL(session: NSURLSession, downloadTask: NSURLSessionDownloadTask, location: NSURL): void {
+        this._resolve();
+    },
+
+    URLSessionDownloadTaskDidResumeAtOffsetExpectedTotalBytes(session: NSURLSession, downloadTask: NSURLSessionDownloadTask, fileOffset: number, expectedTotalBytes: number): void {
+        const lastProgress: any = this._lastProgress || {
+            lengthComputable: false,
+            total: 0
+        };
+        lastProgress.loaded = fileOffset;
+    },
+
+    URLSessionDownloadTaskDidWriteDataTotalBytesWrittenTotalBytesExpectedToWrite(session: NSURLSession, downloadTask: NSURLSessionDownloadTask, bytesWritten: number, totalBytesWritten: number, totalBytesExpectedToWrite: number): void {
+        const lastProgress: any = this._lastProgress || {
+            lengthComputable: totalBytesExpectedToWrite !== -1,
+            total: totalBytesExpectedToWrite !== -1 ? totalBytesExpectedToWrite : 0
+        };
+        lastProgress.loaded = lastProgress.loaded += bytesWritten;
+        if (this._onLoading && !this._loadingSent) {
+            this._onLoading(lastProgress);
+            this._loadingSent = true;
+        }
+        if (this._onProgress) {
+            this._onProgress(lastProgress);
+        }
+    },
+
+    URLSessionDidBecomeInvalidWithError(session: NSURLSession, error: NSError): void{
+        if (this._reject) {
+            switch (error.code) {
+                case NSURLErrorTimedOut:
+                    this._reject({
+                        type: HttpError.Timeout,
+                        ios: error,
+                        message: error.localizedDescription
+                    });
+                    break;
+                case NSURLErrorCancelled:
+                    this._reject({
+                        type: HttpError.Cancelled,
+                        ios: error,
+                        message: error.localizedDescription
+                    });
+                    break;
+                default:
+                    this._reject({
+                        type: HttpError.Error,
+                        ios: error,
+                        message: error.localizedDescription
+                    });
+                    break;
+            }
+        }
+    }
+}, {
+    protocols: [NSURLSessionDownloadDelegate]
+});
+
+
+NSURLSessionDownloadDelegateImpl.initWithDebuggerRequestResolveRejectCallbackHeadersLoadingListener = function (
+    debuggerRequest,
+    request,
+    resolve,
+    reject,
+    onProgress,
+    onHeaders,
+    onLoading
+) {
+    const delegate = NSURLSessionDownloadDelegateImpl.new();
+    delegate._request = request;
+    delegate._resolve = resolve;
+    delegate._reject = reject;
+    delegate._onProgress = onProgress;
+    delegate._onHeaders = onHeaders;
+    delegate._onLoading = onLoading;
+    delegate._debuggerRequest = debuggerRequest;
+    return delegate;
+};
+
+*/
+
 
 // class NSURLSessionTaskDelegateImpl extends NSObject
 //     implements NSURLSessionTaskDelegate, NSURLSessionDataDelegate {
@@ -715,6 +814,12 @@ export class Http {
 
             try {
                 const makeRemoteRequest = () => {
+                    const sessionConfig = NSURLSessionConfiguration.defaultSessionConfiguration;
+                    sessionConfig.timeoutIntervalForRequest = options.timeout || 60;
+                    sessionConfig.timeoutIntervalForResource = options.timeout || 60;
+                    const manager = AFURLSessionManager.alloc()
+                        .initWithSessionConfiguration(sessionConfig);
+
                     // make remote request
                     const urlRequest = NSMutableURLRequest.requestWithURL(
                         NSURL.URLWithString(options.url)
@@ -757,27 +862,259 @@ export class Http {
                         urlRequest.timeoutInterval = options.timeout / 1000;
                     }
 
-                    this._sessionDelegate = NSURLSessionTaskDelegateImpl.initWithDebuggerRequestResolveRejectCallbackHeadersLoadingListener(
-                        debugRequest,
-                        urlRequest,
-                        resolve,
-                        reject,
-                        options.onProgress,
-                        options.onHeaders,
-                        options.onLoading
-                    );
-                    this._session = NSURLSession.sessionWithConfigurationDelegateDelegateQueue(
-                        sessionConfig,
-                        this._sessionDelegate,
-                        null
-                    );
+                    /*  this._sessionDelegate = NSURLSessionTaskDelegateImpl.initWithDebuggerRequestResolveRejectCallbackHeadersLoadingListener(
+                          debugRequest,
+                          urlRequest,
+                          resolve,
+                          reject,
+                          options.onProgress,
+                          options.onHeaders,
+                          options.onLoading
+                      );
+                      this._session = NSURLSession.sessionWithConfigurationDelegateDelegateQueue(
+                          sessionConfig,
+                          this._sessionDelegate,
+                          null
+                      );*/
+                    let lastProgress = {
+                        lengthComputable: false,
+                        total: 0,
+                        loaded: 0
+                    };
+                    let loadingSent = false;
+                    let headersSent = false;
 
-                    const task = this._session.dataTaskWithRequest(urlRequest);
+                    const handleProgress = (progress) => {
+                        lastProgress.loaded = Math.floor(
+                            Math.round(progress.fractionCompleted * 100)
+                        );
+
+                        if (options.onHeaders && !headersSent) {
+                            const headers = {};
+                            if (task.response && (task as any).response.allHeaderFields) {
+                                const headerFields = (task as any).response.allHeaderFields;
+                                headerFields.enumerateKeysAndObjectsUsingBlock((key, value, stop) => {
+                                    addHeader(headers, key, value);
+                                });
+                            }
+                            options.onHeaders({
+                                headers,
+                                status: (task.response as any).statusCode
+                            });
+                            headersSent = true;
+                        }
+
+                        if (options.onLoading && !loadingSent) {
+                            options.onLoading();
+                            loadingSent = true;
+                        }
+                        if (options.onProgress) {
+                            options.onProgress(lastProgress);
+                        }
+                    };
+                    const task = manager.dataTaskWithRequestUploadProgressDownloadProgressCompletionHandler(urlRequest,
+                        (progress) => {
+                            handleProgress(progress);
+                        },
+                        (progress) => {
+                            handleProgress(progress);
+                        },
+                        (response, data, error) => {
+                            const url = response.URL.absoluteString;
+                            if (error) {
+                                if (reject) {
+                                    switch (error.code) {
+                                        case NSURLErrorTimedOut:
+                                            reject({
+                                                type: HttpError.Timeout,
+                                                ios: error,
+                                                message: error.localizedDescription
+                                            });
+                                            break;
+                                        case NSURLErrorCancelled:
+                                            reject({
+                                                type: HttpError.Cancelled,
+                                                ios: error,
+                                                message: error.localizedDescription
+                                            });
+                                            break;
+                                        default:
+                                            reject({
+                                                type: HttpError.Error,
+                                                ios: error,
+                                                message: error.localizedDescription
+                                            });
+                                            break;
+                                    }
+                                }
+                            } else {
+                                handleProgress(task.progress);
+                                const textTypes: string[] = [
+                                    'text/plain',
+                                    'application/xml',
+                                    'application/rss+xml',
+                                    'text/html',
+                                    'text/xml'
+                                ];
+                                const isTextContentType = (contentType: string): boolean => {
+                                    let result = false;
+                                    for (let i = 0; i < textTypes.length; i++) {
+                                        if (
+                                            contentType &&
+                                            types.isString(contentType) &&
+                                            contentType.toLowerCase().indexOf(textTypes[i]) >= 0
+                                        ) {
+                                            result = true;
+                                            break;
+                                        }
+                                    }
+                                    return result;
+                                };
+                                const headers = {};
+                                const response = task ? task.response as NSHTTPURLResponse : null;
+                                if (response && response.allHeaderFields) {
+                                    const headerFields = response.allHeaderFields;
+
+                                    headerFields.enumerateKeysAndObjectsUsingBlock((key, value, stop) => {
+                                        addHeader(headers, key, value);
+                                    });
+                                }
+                                const request = urlRequest as NSURLRequest;
+                                if (request) {
+                                    let contentType = request.allHTTPHeaderFields.objectForKey(
+                                        'Content-Type'
+                                    );
+                                    if (!contentType) {
+                                        contentType = request.allHTTPHeaderFields.objectForKey(
+                                            'content-type'
+                                        );
+                                    }
+                                    let acceptHeader;
+
+                                    if (!contentType) {
+                                        acceptHeader = request.allHTTPHeaderFields.objectForKey('Accept');
+                                    } else {
+                                        acceptHeader = contentType;
+                                    }
+
+                                    let returnType = 'text/plain';
+                                    if (
+                                        !types.isNullOrUndefined(acceptHeader) &&
+                                        types.isString(acceptHeader)
+                                    ) {
+                                        let acceptValues = acceptHeader.split(',');
+                                        let quality = [];
+                                        let defaultQuality = [];
+                                        let customQuality = [];
+                                        for (let value of acceptValues) {
+                                            if (value.indexOf(';q=') > -1) {
+                                                customQuality.push(value);
+                                            } else {
+                                                defaultQuality.push(value);
+                                            }
+                                        }
+                                        customQuality = customQuality.sort((a, b) => {
+                                            const a_quality = parseFloat(
+                                                a.substring(a.indexOf(';q=')).replace(';q=', '')
+                                            );
+                                            const b_quality = parseFloat(
+                                                b.substring(b.indexOf(';q=')).replace(';q=', '')
+                                            );
+                                            return b_quality - a_quality;
+                                        });
+                                        quality.push(...defaultQuality);
+                                        quality.push(...customQuality);
+                                        returnType = quality[0];
+                                    }
+
+                                    let content;
+                                    let responseText;
+                                    console.log(headers);
+                                    console.log(returnType, data instanceof NSDictionary, isTextContentType(returnType), returnType.indexOf('application/json') > -1);
+                                    if (data && data instanceof NSData && isTextContentType(returnType)) {
+                                        responseText = NSDataToString(data);
+                                        content = responseText;
+                                    } else if (
+                                        data &&
+                                        data instanceof NSData &&
+                                        types.isString(returnType) &&
+                                        returnType.indexOf('application/json') > -1
+                                    ) {
+                                        // @ts-ignore
+                                        try {
+                                            responseText = NSDataToString(data);
+                                            content = JSON.parse(responseText);
+                                            // content = deserialize(NSJSONSerialization.JSONObjectWithDataOptionsError(this._data, NSJSONReadingOptions.AllowFragments, null));
+                                        } catch (err) {
+                                            reject({
+                                                type: HttpError.Error,
+                                                ios: null,
+                                                message: err
+                                            });
+                                            return;
+                                        }
+                                    } else if (data && data instanceof NSDictionary && isTextContentType(returnType)) {
+                                        responseText = JSON.stringify(deserialize(data));
+                                        content = responseText;
+                                    } else if (data && data instanceof NSDictionary && types.isString(returnType) &&
+                                        returnType.indexOf('application/json') > -1) {
+                                        content = deserialize(data);
+                                        responseText = JSON.stringify(content);
+                                    } else {
+                                        content = data;
+                                    }
+                                    if (
+                                        TNSHttpSettings.saveImage &&
+                                        TNSHttpSettings.currentlySavedImages &&
+                                        TNSHttpSettings.currentlySavedImages[url]
+                                    ) {
+                                        // ensure saved to disk
+                                        if (TNSHttpSettings.currentlySavedImages[url].localPath) {
+                                            FileManager.writeFile(
+                                                content,
+                                                TNSHttpSettings.currentlySavedImages[url].localPath,
+                                                function (error, result) {
+                                                    if (TNSHttpSettings.debug) {
+                                                        console.log('http image save:', error ? error : result);
+                                                    }
+                                                }
+                                            );
+                                        }
+                                    }
+
+                                    if (debugRequest) {
+                                        debugRequest.mimeType = response.MIMEType;
+                                        debugRequest.data = data;
+                                        const debugResponse = {
+                                            url: url,
+                                            status: response.statusCode,
+                                            statusText: NSHTTPURLResponse.localizedStringForStatusCode(
+                                                response.statusCode
+                                            ),
+                                            headers: headers,
+                                            mimeType: response.MIMEType,
+                                            fromDiskCache: false
+                                        };
+                                        debugRequest.responseReceived(debugResponse);
+                                        debugRequest.loadingFinished();
+                                    }
+
+                                    resolve({
+                                        url: url,
+                                        content,
+                                        responseText,
+                                        statusCode: response.statusCode,
+                                        headers: headers
+                                    });
+                                }
+                            }
+
+                        });
                     Http._tasks.set(id, task);
                     if (options.url && debugRequest) {
                         const request = {
                             url: options.url,
-                            method: 'GET',
+                            method: urlRequest.HTTPMethod,
                             headers: options.headers
                         };
                         debugRequest.requestWillBeSent(request);
@@ -875,7 +1212,119 @@ export class Http {
     }
 
     public static getFile(options: HttpDownloadRequestOptions): CancellablePromise {
-        return null;
+        let id = NSUUID.UUID().UUIDString;
+        const request = <CancellablePromise>new Promise<any>((resolve, reject) => {
+            if (!options.url) {
+                reject(new Error('Request url was empty.'));
+                return;
+            }
+
+            try {
+                const makeRemoteRequest = () => {
+                    const sessionConfig = NSURLSessionConfiguration.defaultSessionConfiguration;
+                    sessionConfig.timeoutIntervalForRequest = options.timeout || 60;
+                    sessionConfig.timeoutIntervalForResource = options.timeout || 60;
+                    const manager = AFHTTPSessionManager.alloc()
+                        .initWithSessionConfiguration(sessionConfig);
+
+                    // make remote request
+                    const urlRequest = NSMutableURLRequest.requestWithURL(
+                        NSURL.URLWithString(options.url)
+                    );
+
+                    urlRequest.HTTPMethod = GET;
+
+                    urlRequest.setValueForHTTPHeaderField(USER_AGENT, USER_AGENT_HEADER);
+
+                    if (options.headers) {
+                        if (options.headers instanceof Map) {
+                            options.headers.forEach((value, key) => {
+                                urlRequest.setValueForHTTPHeaderField(value, key);
+                            });
+                        } else {
+                            for (let header in options.headers) {
+                                urlRequest.setValueForHTTPHeaderField(
+                                    options.headers[header] + '',
+                                    header
+                                );
+                            }
+                        }
+                    }
+
+                    /* const sessionDelegate = NSURLSessionTaskDelegateImpl.initWithDebuggerRequestResolveRejectCallbackHeadersLoadingListener(
+                         debugRequest,
+                         urlRequest,
+                         resolve,
+                         reject,
+                         options.onProgress,
+                         options.onHeaders,
+                         options.onLoading
+                     );
+                     this._session = NSURLSession.sessionWithConfigurationDelegateDelegateQueue(
+                         sessionConfig,
+                         this._sessionDelegate,
+                         null
+                     );
+
+
+                     const task = this._session.dataTaskWithRequest(urlRequest);*/
+                    const filePath = (options.filePath || path.join(knownFolders.temp().path, NSUUID.UUID().UUIDString)).replace('file://', '');
+                    const task = manager.downloadTaskWithRequestProgressDestinationCompletionHandler(urlRequest,
+                        (progress) => {
+                            if (options.onProgress) {
+                                options.onProgress({
+                                    lengthComputable: progress.totalUnitCount > -1,
+                                    loaded: task.countOfBytesReceived,
+                                    total: progress.totalUnitCount
+                                });
+                            }
+                        },
+                        (targetPath, response) => {
+                            return NSURL.fileURLWithPath(filePath);
+                        },
+                        (response, filePath, error) => {
+                            if (error) {
+                                reject(error.localizedDescription);
+                            } else {
+                                resolve(filePath);
+                            }
+                        });
+                    Http._tasks.set(id, task);
+                    if (options.url && debugRequest) {
+                        const request = {
+                            url: options.url,
+                            method: urlRequest.HTTPMethod,
+                            headers: options.headers
+                        };
+                        debugRequest.requestWillBeSent(request);
+                    }
+                    task.resume();
+                };
+
+                let domainDebugger;
+                let debugRequest;
+                if (TNSHttpSettings.debug) {
+                    domainDebugger = require('tns-core-modules/debugger');
+                    const network = domainDebugger.getNetwork();
+                    debugRequest = network && network.create();
+                }
+
+                makeRemoteRequest();
+            } catch (ex) {
+                console.log('aaa', ex);
+                reject({
+                    type: HttpError.Error,
+                    message: ex
+                });
+            }
+        });
+        request['cancel'] = function () {
+            const task = Http._tasks.get(id);
+            if (task) {
+                task.cancel();
+            }
+        };
+        return request;
     }
 }
 
