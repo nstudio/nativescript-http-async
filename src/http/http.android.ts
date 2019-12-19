@@ -531,11 +531,8 @@ export class Http {
 
                             }
 
-                            // Investigate why a timeout is needed 🤔
-                            setTimeout(()=>{
-                                resolve(result.filePath);
-                                requestCallbacks.delete(id);
-                            },500)
+                            resolve(result.filePath);
+                            requestCallbacks.delete(id);
                         },
                         onError(param0: string, param1: java.lang.Exception): void {
                             reject({
