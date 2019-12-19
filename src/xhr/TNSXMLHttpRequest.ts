@@ -1,7 +1,7 @@
-import { CancellablePromise, Http } from '..';
+import { CancellablePromise, Http } from '../http/http';
 import { HttpError, HttpRequestOptions, ProgressEvent } from '../http/http-request-common';
-import { isIOS } from 'tns-core-modules/platform';
-import * as types from 'tns-core-modules/utils/types';
+import { isIOS } from '@nativescript/core/platform';
+import * as types from '@nativescript/core/utils/types';
 
 enum XMLHttpRequestResponseType {
     empty = '',

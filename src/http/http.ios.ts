@@ -1,5 +1,5 @@
-import * as types from 'tns-core-modules/utils/types';
-import { File, knownFolders, path } from 'tns-core-modules/file-system';
+import * as types from '@nativescript/core/utils/types';
+import { File, knownFolders, path } from '@nativescript/core/file-system';
 import { FileManager } from '../file/file';
 import {
     fileNameFromPath,
@@ -11,7 +11,7 @@ import {
     SaveImageStorageKey,
     TNSHttpSettings
 } from './http-request-common';
-import { getString, setString } from 'tns-core-modules/application-settings';
+import { getString, setString } from '@nativescript/core/application-settings';
 
 export type CancellablePromise = Promise<any> & { cancel: () => void };
 

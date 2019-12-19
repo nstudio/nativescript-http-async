@@ -8,11 +8,11 @@ import {
     SaveImageStorageKey,
     TNSHttpSettings
 } from './http-request-common';
-import * as types from 'tns-core-modules/utils/types';
-import { isString } from 'tns-core-modules/utils/types';
-import { NetworkAgent } from 'tns-core-modules/debugger';
-import { getString, setString } from 'tns-core-modules/application-settings';
-import { File, Folder, knownFolders, path } from 'tns-core-modules/file-system';
+import * as types from '@nativescript/core/utils/types';
+import { isString } from '@nativescript/core/utils/types';
+import { NetworkAgent } from '@nativescript/core/debugger';
+import { getString, setString } from '@nativescript/core/application-settings';
+import { File, Folder, knownFolders, path } from '@nativescript/core/file-system';
 import { FileManager } from '..';
 
 export type CancellablePromise = Promise<any> & { cancel: () => void };
@@ -531,9 +531,11 @@ export class Http {
 
                             }
 
-
-                            resolve(result.filePath);
-                            requestCallbacks.delete(id);
+                            // Investigate why a timeout is needed 🤔
+                            setTimeout(()=>{
+                                resolve(result.filePath);
+                                requestCallbacks.delete(id);
+                            },500)
                         },
                         onError(param0: string, param1: java.lang.Exception): void {
                             reject({
