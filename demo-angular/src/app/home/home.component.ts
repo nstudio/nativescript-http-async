@@ -12,6 +12,17 @@ export class HomeComponent implements OnInit {
         // Use the component constructor to inject providers.
     }
 
+    async downloadLargeFile() {
+        try {
+            const file = await this.dataService.downloadLargeFile(progress => {
+                console.log('large file progress:', progress);
+            });
+            console.log('large file result', file);
+        } catch (e) {
+            console.log('downloadLargeFile error: ', e);
+        }
+    }
+
     ngOnInit(): void {
         // Init your component properties here.
     }
@@ -38,7 +49,7 @@ export class HomeComponent implements OnInit {
     }
 
     showNext() {
-        this.dataService.showNext()
+        this.dataService.showNext();
     }
 
     showPrevious() {

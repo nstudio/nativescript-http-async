@@ -3,11 +3,12 @@ import { HttpClient } from '@angular/common/http';
 import { isIOS } from 'tns-core-modules/platform';
 import { ObservableArray } from 'tns-core-modules/data/observable-array';
 import { from } from 'rxjs';
-import { map, mergeMap , concatMap,switchMap} from 'rxjs/internal/operators';
+import { concatMap, map, mergeMap, switchMap } from 'rxjs/internal/operators';
 import * as imageSrc from 'tns-core-modules/image-source';
-import { TNSXMLHttpRequest, FileManager } from 'nativescript-http-async';
+import { FileManager, Http, TNSXMLHttpRequest } from 'nativescript-http-async';
 import * as fs from 'tns-core-modules/file-system';
 import { releaseNativeObject } from 'tns-core-modules/utils/utils';
+
 declare var UIImageJPEGRepresentation, NSDataBase64EncodingOptions, android, java;
 
 @Injectable()
@@ -39,6 +40,17 @@ export class DataService {
     constructor(private httpClient: HttpClient) {
     }
 
+    downloadLargeFile(progress: (progress) => void) {
+        return Http.getFile({
+            url: 'https://images.unsplash.com/photo-1531209543467-b496dcb567fa',
+            onProgress: (event) => {
+                if (typeof progress === 'function') {
+                    progress(event);
+                }
+            }
+        });
+    }
+
     getRandomUsers(count: number = 1, users: number = 10) {
         const requests = [];
         for (let i = 0; i < count; i++) {
@@ -55,7 +67,7 @@ export class DataService {
                                 return value['results'];
                             }
                         })
-                    )
+                    );
                 })
             )
             .subscribe(
@@ -164,9 +176,9 @@ export class DataService {
                                         }
                                     });
                                 })
-                            )
+                            );
                         })
-                    )
+                    );
                 })
             ).subscribe(value => {
             this.imagesData.push(value);
@@ -174,7 +186,7 @@ export class DataService {
                 this.loadImage(this.currentImageId);
             }
         }, error => {
-            console.log(error)
+            console.log(error);
         });
     }
 

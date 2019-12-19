@@ -1,16 +1,18 @@
 import {
     fileNameFromPath,
     Headers,
+    HttpDownloadRequestOptions,
     HttpError,
     HttpRequestOptions,
     isImageUrl,
     SaveImageStorageKey,
     TNSHttpSettings
 } from './http-request-common';
-import * as types from 'tns-core-modules/utils/types';
-import { NetworkAgent } from 'tns-core-modules/debugger';
-import { getString, setString } from 'tns-core-modules/application-settings';
-import { File, knownFolders, path } from 'tns-core-modules/file-system';
+import * as types from '@nativescript/core/utils/types';
+import { isString } from '@nativescript/core/utils/types';
+import { NetworkAgent } from '@nativescript/core/debugger';
+import { getString, setString } from '@nativescript/core/application-settings';
+import { File, Folder, knownFolders, path } from '@nativescript/core/file-system';
 import { FileManager } from '..';
 
 export type CancellablePromise = Promise<any> & { cancel: () => void };
@@ -102,7 +104,7 @@ export class Http {
     constructor() {
     }
 
-    buildJavaOptions(options: HttpRequestOptions) {
+    private static buildJavaOptions(options: HttpRequestOptions) {
         if (!types.isString(options.url)) {
             throw new Error('Http request must provide a valid url.');
         }
@@ -148,6 +150,45 @@ export class Http {
         return javaOptions;
     }
 
+    private static buildJavaDownloadOptions(options: HttpDownloadRequestOptions) {
+        if (!types.isString(options.url)) {
+            throw new Error('Http request must provide a valid url.');
+        }
+
+        const javaOptions = new com.github.triniwiz.async.Async.Http.DownloadRequestOptions();
+        javaOptions.url = options.url;
+
+        if (typeof options.timeout === 'number') {
+            javaOptions.timeout = options.timeout;
+        }
+
+        if (typeof options.filePath === 'string') {
+            javaOptions.filePath = options.filePath;
+        } else {
+            // creates directory
+            Folder.fromPath(path.join(knownFolders.temp().path, 'async_http'));
+            javaOptions.filePath = path.join(knownFolders.temp().path, 'async_http', java.util.UUID.randomUUID().toString());
+        }
+
+        if (options.headers) {
+            const arrayList = new java.util.ArrayList<any>();
+            const pair = com.github.triniwiz.async.Async.Http.KeyValuePair;
+
+            if (options.headers instanceof Map) {
+                options.headers.forEach((value, key) => {
+                    arrayList.add(new pair(key, value + ''));
+                });
+            } else {
+                for (let key in options.headers) {
+                    arrayList.add(new pair(key, options.headers[key] + ''));
+                }
+            }
+
+            javaOptions.headers = arrayList;
+        }
+        return javaOptions;
+    }
+
     request(options: HttpRequestOptions): CancellablePromise {
         const headers: Headers = {};
         let statusCode = 0;
@@ -157,7 +198,7 @@ export class Http {
             try {
 
                 // initialize the options
-                const javaOptions = this.buildJavaOptions(options);
+                const javaOptions = Http.buildJavaOptions(options);
 
                 if (TNSHttpSettings.debug) {
                     // @ts-ignore
@@ -396,6 +437,162 @@ export class Http {
         return request;
     }
 
+    public static getFile(options: HttpDownloadRequestOptions): CancellablePromise {
+        const headers: Headers = {};
+        let statusCode = 0;
+        let id;
+        const counter = requestIdCounter;
+        const request = <CancellablePromise>new Promise<any>((resolve, reject) => {
+            try {
+
+                // initialize the options
+                const javaOptions = Http.buildJavaDownloadOptions(options);
+
+                if (TNSHttpSettings.debug) {
+                    // @ts-ignore
+                    if (global.__inspector && global.__inspector.isConnected) {
+                        NetworkAgent.requestWillBeSent(requestIdCounter, options);
+                    }
+                }
+
+                const makeRemoteRequest = () => {
+                    const callback = new com.github.triniwiz.async.Async.Http.Callback({
+                        onCancel(param: any): void {
+                            reject({
+                                type: HttpError.Cancelled,
+                                result: param
+                            });
+                            requestCallbacks.delete(id);
+                        },
+                        onComplete(result: any): void {
+                            if (result && result.headers) {
+                                const length = result.headers.size();
+                                let pair;
+                                for (let i = 0; i < length; i++) {
+                                    pair = result.headers.get(i);
+                                    addHeader(headers, pair.key, pair.value);
+                                }
+                            }
+                            // send response data (for requestId) to network debugger
+
+
+                            let contentType = headers['Content-Type'];
+                            if (types.isNullOrUndefined(contentType)) {
+                                contentType = headers['content-type'];
+                            }
+                            let acceptHeader;
+
+                            if (types.isNullOrUndefined(contentType)) {
+                                acceptHeader = headers['Accept'];
+                                if (types.isNullOrUndefined(acceptHeader)) {
+                                    acceptHeader = headers['accept'];
+                                }
+                            } else {
+                                acceptHeader = contentType;
+                            }
+
+                            let returnType = 'text/plain';
+                            if (!types.isNullOrUndefined(acceptHeader) && types.isString(acceptHeader)) {
+                                let acceptValues = acceptHeader.split(',');
+                                let quality = [];
+                                let defaultQuality = [];
+                                let customQuality = [];
+                                for (let value of acceptValues) {
+                                    if (value.indexOf(';q=') > -1) {
+                                        customQuality.push(value);
+                                    } else {
+                                        defaultQuality.push(value);
+                                    }
+                                }
+                                customQuality = customQuality.sort((a, b) => {
+                                    const a_quality = parseFloat(a.substring(a.indexOf(';q=')).replace(';q=', ''));
+                                    const b_quality = parseFloat(b.substring(b.indexOf(';q=')).replace(';q=', ''));
+                                    return (b_quality - a_quality);
+                                });
+                                quality.push(...defaultQuality);
+                                quality.push(...customQuality);
+                                returnType = quality[0];
+                            }
+
+                            result['statusCode'] = statusCode;
+
+                            if (TNSHttpSettings.debug) {
+                                // send response data (for requestId) to network debugger
+                                // @ts-ignore
+                                if (global.__inspector && global.__inspector.isConnected) {
+                                    NetworkAgent.responseReceived(counter, {
+                                        url: result.url,
+                                        statusCode,
+                                        headers,
+                                        responseAsString: isString ? (result.contentText ? result.contentText : result.content.toString()) : null,
+                                        responseAsImage: null // TODO needs base64 Image
+                                    }, headers);
+                                }
+
+                            }
+
+                            // Investigate why a timeout is needed 🤔
+                            setTimeout(()=>{
+                                resolve(result.filePath);
+                                requestCallbacks.delete(id);
+                            },500)
+                        },
+                        onError(param0: string, param1: java.lang.Exception): void {
+                            reject({
+                                type: HttpError.Error,
+                                message: param0
+                            });
+                            requestCallbacks.delete(id);
+                        },
+                        onHeaders(jHeaders: any, status: number): void {
+                            statusCode = status;
+                            const length = jHeaders.size();
+                            let pair;
+                            for (let i = 0; i < length; i++) {
+                                pair = jHeaders.get(i);
+                                addHeader(headers, pair.key, pair.value);
+                            }
+                            if (options.onHeaders) {
+                                options.onHeaders(headers, statusCode);
+                            }
+                            requestCallbacks.delete(id);
+                        }, onLoading(): void {
+                            options.onLoading();
+                            requestCallbacks.delete(id);
+                        }, onProgress(lengthComputable: boolean, loaded: number, total: number): void {
+                            if (options.onProgress) {
+                                options.onProgress({
+                                    lengthComputable,
+                                    loaded,
+                                    total
+                                });
+                            }
+                            requestCallbacks.delete(id);
+                        },
+                        onTimeout(): void {
+                            reject({
+                                type: HttpError.Timeout
+                            });
+                            requestCallbacks.delete(id);
+                        }
+                    });
+                    id = com.github.triniwiz.async.Async.Http.getFileRequest(javaOptions, callback);
+                    requestCallbacks.set(id, callback);
+                };
+                makeRemoteRequest();
+                requestIdCounter++;
+            } catch (ex) {
+                reject({
+                    type: HttpError.Error,
+                    message: ex.message
+                });
+            }
+        });
+        request['cancel'] = function () {
+            com.github.triniwiz.async.Async.Http.cancelRequest(id);
+        };
+        return request;
+    }
 }
 
 function serialize(data: any): any {

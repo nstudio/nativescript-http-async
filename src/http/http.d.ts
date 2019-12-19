@@ -1,4 +1,4 @@
-import { Headers, HttpRequestOptions } from './http-request-common';
+import { Headers, HttpDownloadRequestOptions, HttpRequestOptions } from './http-request-common';
 
 export enum HttpResponseEncoding {
     UTF8,
@@ -13,6 +13,8 @@ export class Http {
     constructor();
 
     request(options: HttpRequestOptions): CancellablePromise;
+
+    public static getFile(options: HttpDownloadRequestOptions): CancellablePromise;
 
     cancel();
 }
