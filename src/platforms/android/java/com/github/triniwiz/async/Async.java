@@ -18,9 +18,12 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.SocketTimeoutException;
 import java.nio.ByteBuffer;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.Iterator;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
@@ -96,6 +99,7 @@ public class Async {
             FileResult() {
             }
         }
+
 
         static class ProgressRequestBody extends RequestBody {
             RequestBody body;
@@ -354,19 +358,78 @@ public class Async {
                         if (options.content instanceof File) {
 
                         } else if (options.content instanceof String) {
-                            body = new ProgressRequestBody(RequestBody.create(MediaType.parse(contentType), (String) options.content), new ProgressListener() {
-                                @Override
-                                public void onProgress(long loaded, long total) {
-                                    callback.onProgress(total > -1, loaded, total);
+                            if (contentType.equals("application/x-www-form-urlencoded")) {
+                                JSONTokener tokener = new JSONTokener((String) options.content);
+                                Object value = null;
+                                try {
+                                    value = tokener.nextValue();
+                                } catch (JSONException e) {
+                                    e.printStackTrace();
                                 }
-                            });
+                                if (value instanceof JSONObject) {
+                                    FormBody.Builder formBody = new FormBody.Builder(StandardCharsets.UTF_8);
+
+                                    for (Iterator<String> it = ((JSONObject) value).keys(); it.hasNext(); ) {
+                                        String key = it.next();
+                                        formBody.addEncoded(key, String.valueOf(((JSONObject) value).opt(key)));
+                                    }
+                                    body = new ProgressRequestBody(formBody.build(), new ProgressListener() {
+                                        @Override
+                                        public void onProgress(long loaded, long total) {
+                                            callback.onProgress(total > -1, loaded, total);
+                                        }
+                                    });
+                                }else {
+                                    body = new ProgressRequestBody(RequestBody.create(MediaType.parse(contentType), (String) options.content), new ProgressListener() {
+                                        @Override
+                                        public void onProgress(long loaded, long total) {
+                                            callback.onProgress(total > -1, loaded, total);
+                                        }
+                                    });
+                                }
+
+                            } else {
+                                body = new ProgressRequestBody(RequestBody.create(MediaType.parse(contentType), (String) options.content), new ProgressListener() {
+                                    @Override
+                                    public void onProgress(long loaded, long total) {
+                                        callback.onProgress(total > -1, loaded, total);
+                                    }
+                                });
+                            }
+
                         } else if (options.content instanceof JSONObject || options.content instanceof JSONArray) {
-                            body = new ProgressRequestBody(RequestBody.create(MediaType.parse(contentType), options.content.toString()), new ProgressListener() {
-                                @Override
-                                public void onProgress(long loaded, long total) {
-                                    callback.onProgress(total > -1, loaded, total);
+                            if (contentType.equals("application/x-www-form-urlencoded")) {
+                                if (options.content instanceof JSONObject) {
+                                    FormBody.Builder formBody = new FormBody.Builder(StandardCharsets.UTF_8);
+
+                                    for (Iterator<String> it = (((JSONObject) options.content).keys()); it.hasNext(); ) {
+                                        String key = it.next();
+                                        formBody.addEncoded(key, String.valueOf(((JSONObject) options.content).opt(key)));
+                                    }
+                                    body = new ProgressRequestBody(formBody.build(), new ProgressListener() {
+                                        @Override
+                                        public void onProgress(long loaded, long total) {
+                                            callback.onProgress(total > -1, loaded, total);
+                                        }
+                                    });
+                                } else {
+                                    body = new ProgressRequestBody(RequestBody.create(MediaType.parse(contentType), options.content.toString()), new ProgressListener() {
+                                        @Override
+                                        public void onProgress(long loaded, long total) {
+                                            callback.onProgress(total > -1, loaded, total);
+                                        }
+                                    });
                                 }
-                            });
+
+                            }else {
+                                body = new ProgressRequestBody(RequestBody.create(MediaType.parse(contentType), options.content.toString()), new ProgressListener() {
+                                    @Override
+                                    public void onProgress(long loaded, long total) {
+                                        callback.onProgress(total > -1, loaded, total);
+                                    }
+                                });
+                            }
+
                         } else {
                             body = RequestBody.create(null, "");
                         }
@@ -409,14 +472,17 @@ public class Async {
                                     }
                                 }
                             });
-                            String contentType = call.request().header("Content-Type");
+                            String contentType = response.header("Content-Type");
                             if (contentType == null) {
-                                contentType = call.request().header("content-Type");
+                                contentType = response.header("content-type");
                             }
                             String acceptHeader;
 
                             if (contentType == null) {
-                                acceptHeader = call.request().header("Accept");
+                                acceptHeader = response.header("Accept");
+                                if (acceptHeader == null){
+                                    acceptHeader = response.header("accept");
+                                }
                             } else {
                                 acceptHeader = contentType;
                             }
