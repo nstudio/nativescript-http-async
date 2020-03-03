@@ -518,7 +518,7 @@ public class Async {
                                     result.content = stream.toString();
                                     result.contentText = (String) result.content;
                                     callback.onComplete(result);
-                                } else if (returnType.equals("application/json")) {
+                                } else if (returnType.contains("application/json")) {
                                     String returnValue = stream.toString();
                                     JSONTokener tokener = new JSONTokener(returnValue);
                                     Object value = tokener.nextValue();
@@ -542,7 +542,7 @@ public class Async {
                                     if (isTextType(returnType)) {
                                         result.content = stream.toString();
                                         callback.onCancel(result);
-                                    } else if (returnType.equals("application/json")) {
+                                    } else if (returnType.contains("application/json")) {
                                         String returnValue = stream.toString();
                                         JSONTokener tokener = new JSONTokener(returnValue);
                                         try {
