@@ -26,6 +26,7 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -35,7 +36,7 @@ import java.util.concurrent.TimeUnit;
  */
 
 public class Async {
-    private static Executor executor = Executors.newSingleThreadExecutor();
+    private static ExecutorService executor = Executors.newCachedThreadPool();
     private static Handler handler;
 
     static {
@@ -45,7 +46,7 @@ public class Async {
     }
 
     public static void runInBackground(final Runnable runnable) {
-        executor.execute(new Runnable() {
+        executor.submit(new Runnable() {
             @Override
             public void run() {
                 Thread thread = new Thread(runnable);
@@ -75,7 +76,6 @@ public class Async {
         private static ConcurrentHashMap<String, CallOptions> callMap = new ConcurrentHashMap<>();
         private static ConcurrentHashMap<String, DownloadCallOptions> downloadCallMap = new ConcurrentHashMap<>();
         private static ArrayList<String> cancelList = new ArrayList<>();
-        private static Executor executor = Executors.newSingleThreadExecutor();
 
         interface ProgressListener {
             void onProgress(long loaded, long total);
@@ -316,7 +316,7 @@ public class Async {
         public static String makeRequest(final RequestOptions options, final Http.Callback callback) {
             UUID uuid = UUID.randomUUID();
             final String id = uuid.toString();
-            executor.execute(new Runnable() {
+            Async.executor.submit(new Runnable() {
                 @Override
                 public void run() {
                     OkHttpClient.Builder builder = new OkHttpClient.Builder();
@@ -594,7 +594,7 @@ public class Async {
         public static String getFileRequest(final DownloadRequestOptions options, final Http.Callback callback) {
             UUID uuid = UUID.randomUUID();
             final String id = uuid.toString();
-            executor.execute(new Runnable() {
+            Async.executor.submit(new Runnable() {
                 @Override
                 public void run() {
                     OkHttpClient.Builder builder = new OkHttpClient.Builder();
@@ -703,7 +703,7 @@ public class Async {
 
         public static void cancelRequest(final String id) {
             if (id != null) {
-                executor.execute(new Runnable() {
+                Async.executor.submit(new Runnable() {
                     @Override
                     public void run() {
                         CallOptions pair = callMap.get(id);
@@ -792,8 +792,6 @@ public class Async {
     }
 
     public static class FileManager {
-        private static Executor executor = Executors.newSingleThreadExecutor();
-
         public interface Callback {
             void onError(String error, Exception e);
 
@@ -803,12 +801,12 @@ public class Async {
         public static class Options {
             public boolean asStream = false;
 
-            Options() {
+            public Options() {
             }
         }
 
         public static void writeFile(final byte[] bytes, final String path, final Callback callback) {
-            executor.execute(new Runnable() {
+            Async.executor.submit(new Runnable() {
                 @Override
                 public void run() {
                     BufferedSink sink;
@@ -825,22 +823,34 @@ public class Async {
             });
         }
 
-        public static void readFile(final String path, final Options options, final Callback callback) {
-            executor.execute(new Runnable() {
+        public static void readFile(final String path, final @Nullable Options options, final Callback callback) {
+            Async.executor.submit(new Runnable() {
                 @Override
                 public void run() {
                     File file = new File(path);
-                    BufferedSource source;
+                    BufferedSource source = null;
+                    Sink sink = null;
                     try {
                         source = Okio.buffer(Okio.source(file));
-                        ByteArrayOutputStream2 outputStream = new ByteArrayOutputStream2();
-                        Sink sink = Okio.sink(outputStream);
+                        ByteArrayOutputStream2 outputStream = new ByteArrayOutputStream2((int)file.length());
+                        sink = Okio.sink(outputStream);
                         source.readAll(sink);
                         callback.onComplete(outputStream.buf());
                     } catch (FileNotFoundException e) {
                         callback.onError(e.getMessage(), e);
                     } catch (IOException e) {
                         callback.onError(e.getMessage(), e);
+                    }finally {
+                        try {
+                        if(source != null){
+                            source.close();
+                        }
+                        }catch(IOException ignored){}
+                        try {
+                        if(sink != null){
+                            sink.close();
+                        }
+                        }catch(IOException ignored){}
                     }
                 }
             });

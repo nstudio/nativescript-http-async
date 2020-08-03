@@ -24,9 +24,9 @@ export class FileManager {
     }
 
     public static readFile(path: string, options: Options = {asStream: false}, callback: (...args) => void) {
-        const opts = new com.github.triniwiz.async.Async.FileManager.Options();
-        opts.asStream = options.asStream;
-        com.github.triniwiz.async.Async.FileManager.readFile(path, opts, new com.github.triniwiz.async.Async.FileManager.Callback({
+        //const opts = new com.github.triniwiz.async.Async.FileManager.Options();
+        //opts.asStream = options.asStream;
+        com.github.triniwiz.async.Async.FileManager.readFile(path, null, new com.github.triniwiz.async.Async.FileManager.Callback({
             onError(param0: string, param1: java.lang.Exception): void {
                 callback(param0, null);
             },
