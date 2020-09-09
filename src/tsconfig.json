@@ -20,9 +20,15 @@
         "noImplicitUseStrict": false,
         "noFallthroughCasesInSwitch": true
     },
+    "include": [
+        "../src",
+        "**/*",
+    ],
     "exclude": [
         "node_modules",
-        "types"
+        "types",
+        "../src/node_modules",
+        "platforms"
     ],
     "compileOnSave": false
 }

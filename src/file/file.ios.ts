@@ -1,5 +1,5 @@
 const background_queue = dispatch_get_global_queue(qos_class_t.QOS_CLASS_DEFAULT, 0);
-
+const main_queue = dispatch_get_current_queue();
 export class FileManager {
 
     public static writeFile(bytes: any, path: string, callback: (...args) => void) {
@@ -10,9 +10,13 @@ export class FileManager {
                 } else if (bytes instanceof ArrayBuffer) {
                     NSData.dataWithData(bytes as any).writeToFileAtomically(path, true);
                 }
-                callback(null, path);
+                dispatch_async(main_queue, ()=>{
+                    callback(null, path);
+                });
             } catch (e) {
-                callback(e, null);
+                dispatch_async(main_queue, ()=>{
+                    callback(e, null);
+                });
             }
         });
     }
@@ -21,9 +25,13 @@ export class FileManager {
         dispatch_async(background_queue, () => {
             try {
                 const data = NSData.dataWithContentsOfFile(path);
-                callback(null, data);
+                dispatch_async(main_queue, ()=>{
+                    callback(null, data);
+                });
             } catch (e) {
-                callback(e, null);
+                dispatch_async(main_queue, ()=>{
+                    callback(e, null);
+                });
             }
         });
     }
@@ -32,9 +40,13 @@ export class FileManager {
       dispatch_async(background_queue, () => {
           try {
               NSFileManager.defaultManager.removeItemAtPathError(path);
-              callback(null, true);
+              dispatch_async(main_queue, ()=>{
+                callback(null, true);
+              });
           } catch (e) {
-              callback(e, false);
+            dispatch_async(main_queue, ()=>{
+                callback(e, false);
+            });
           }
       });
     }
